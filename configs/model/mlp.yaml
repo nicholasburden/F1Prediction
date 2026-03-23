@@ -1,0 +1,15 @@
+backend: torch
+model_type: mlp
+
+hidden_dims: [128, 64]
+dropout: 0.1
+driver_embed_dim: 8
+team_embed_dim: 4
+normalize_embeddings: false
+unk_dropout: 0.15
+embed_l2: 0.0
+
+learning_rate: 0.001
+weight_decay: 0.0001
+epochs: 100
+patience: 15

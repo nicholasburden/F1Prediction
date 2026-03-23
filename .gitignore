@@ -1,0 +1,9 @@
+data/
+cache/
+runs/
+wandb/
+prepared/
+__pycache__/
+*.pyc
+.venv/
+.mypy_cache/

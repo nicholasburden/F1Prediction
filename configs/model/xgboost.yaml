@@ -1,0 +1,11 @@
+backend: xgboost
+
+n_estimators: 500
+max_depth: 6
+learning_rate: 0.1
+subsample: 0.8
+colsample_bytree: 0.8
+min_child_weight: 5
+reg_alpha: 0.0
+reg_lambda: 1.0
+early_stopping_rounds: 50
