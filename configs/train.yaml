@@ -1,26 +1,18 @@
 defaults:
-  - model: xgboost
-
-data:
-  data_dir: data
-  years: [2020, 2021, 2022, 2023, 2024]
-  train_frac: 0.7
-  val_frac: 0.15
-  max_drivers: 22
-  batch_size: 32
-  feature_tiers: null  # null = all tiers (core, form, derived)
-  lookback: 5
-  prepared_dir: null
+  - model: mlp
 
 training:
   seed: 42
+  lr: 0.001
+  patience: 10
+  min_delta: 0.0001
+  batch_size: 256
+  gradient_accumulation: 4
+  driver_dropout: 0.2
+  loss: mae
+  optimizer: adam
+  device: cpu
+  target_sessions: [Sprint, Q, R]
+  years: [2018, 2019, 2020, 2021, 2022, 2023, 2024, 2025, 2026]
+  data_dir: data
   output_dir: runs
-
-wandb:
-  group: null  # set to group related runs (e.g. "sweep_xgb_v1")
-
-hydra:
-  run:
-    dir: ${training.output_dir}
-  job:
-    chdir: false

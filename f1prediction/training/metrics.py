@@ -1,63 +1,92 @@
-from __future__ import annotations
+from abc import ABC, abstractmethod
+from typing import Literal
 
-import numpy as np
-from torch import Tensor
-
-
-class PositionMetrics:
-    @staticmethod
-    def compute(preds: Tensor, targets: Tensor, max_drivers: int = 20) -> dict[str, float]:
-        """Compute position prediction metrics.
-
-        Args:
-            preds: normalized predictions in [0, 1], shape (N,)
-            targets: normalized targets in [0, 1], shape (N,)
-            max_drivers: denormalization factor
-        """
-        pred_pos = preds * max_drivers
-        true_pos = targets * max_drivers
-        pred_rounded = pred_pos.round()
-
-        diff = (pred_pos - true_pos).abs()
-        mae = diff.mean().item()
-        rmse = diff.pow(2).mean().sqrt().item()
-
-        # Top-3 accuracy: check if rounded prediction <= 3 when true position <= 3
-        top3_correct = ((pred_rounded <= 3) & (true_pos <= 3)).float().sum()
-        top3_total = (true_pos <= 3).float().sum()
-        top3_acc = (top3_correct / top3_total).item() if top3_total > 0 else 0.0
-
-        exact = (diff < 0.5).float().mean().item()
-
-        return {
-            "mae_positions": mae,
-            "rmse_positions": rmse,
-            "top3_accuracy": top3_acc,
-            "exact_accuracy": exact,
-        }
+import torch
+from pydantic import BaseModel
 
 
-def compute_metrics_numpy(
-    preds: np.ndarray, targets: np.ndarray, max_drivers: int = 20,
-) -> dict[str, float]:
-    """Compute position prediction metrics using numpy arrays."""
-    pred_pos = preds * max_drivers
-    true_pos = targets * max_drivers
-    pred_rounded = np.round(pred_pos)
+class Metric(ABC):
+    @abstractmethod
+    def name(self) -> str: ...
 
-    diff = np.abs(pred_pos - true_pos)
-    mae = float(diff.mean())
-    rmse = float(np.sqrt((diff**2).mean()))
+    @abstractmethod
+    def update(self, pred: torch.Tensor, target: torch.Tensor) -> None: ...
 
-    top3_correct = ((pred_rounded <= 3) & (true_pos <= 3)).sum()
-    top3_total = (true_pos <= 3).sum()
-    top3_acc = float(top3_correct / top3_total) if top3_total > 0 else 0.0
+    @abstractmethod
+    def compute(self) -> float: ...
 
-    exact = float((diff < 0.5).mean())
+    def reset(self) -> None:
+        self.__init__()  # type: ignore[misc]
 
-    return {
-        "mae_positions": mae,
-        "rmse_positions": rmse,
-        "top3_accuracy": top3_acc,
-        "exact_accuracy": exact,
-    }
+
+class MAE(Metric):
+    def __init__(self) -> None:
+        self.total = 0.0
+        self.count = 0
+
+    def name(self) -> str:
+        return "mae"
+
+    def update(self, pred: torch.Tensor, target: torch.Tensor) -> None:
+        self.total += torch.abs(pred - target).sum().item()
+        self.count += pred.numel()
+
+    def compute(self) -> float:
+        return self.total / self.count
+
+
+class MSE(Metric):
+    def __init__(self) -> None:
+        self.total = 0.0
+        self.count = 0
+
+    def name(self) -> str:
+        return "mse"
+
+    def update(self, pred: torch.Tensor, target: torch.Tensor) -> None:
+        self.total += ((pred - target) ** 2).sum().item()
+        self.count += pred.numel()
+
+    def compute(self) -> float:
+        return self.total / self.count
+
+
+class WithinK(Metric):
+    def __init__(self, k: float) -> None:
+        self.k = k
+        self.within = 0
+        self.count = 0
+
+    def reset(self) -> None:
+        self.within = 0
+        self.count = 0
+
+    def name(self) -> str:
+        return f"within_{self.k}"
+
+    def update(self, pred: torch.Tensor, target: torch.Tensor) -> None:
+        self.within += (torch.abs(pred - target) <= self.k).sum().item()
+        self.count += pred.numel()
+
+    def compute(self) -> float:
+        return self.within / self.count
+
+
+MetricType = Literal["mae", "mse", "within_k"]
+
+METRIC_REGISTRY: dict[MetricType, type[Metric]] = {
+    "mae": MAE,
+    "mse": MSE,
+    "within_k": WithinK,
+}
+
+
+class MetricConfig(BaseModel):
+    type: MetricType
+    k: float | None = None
+
+    def build(self) -> Metric:
+        if self.type == "within_k":
+            assert self.k
+            return WithinK(k=self.k)
+        return METRIC_REGISTRY[self.type]()
