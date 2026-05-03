@@ -9,7 +9,7 @@ import torch
 import pytest
 
 from f1prediction.data.constants import DATA_DIR
-from f1prediction.data.features import ALL_FEATURES
+from f1prediction.data.features import CORE_FEATURES
 from f1prediction.data.dataloader import get_dataloaders
 from f1prediction.data.pipeline import build_features
 
@@ -21,9 +21,11 @@ BATCH_SIZE = 4
 
 @pytest.fixture(scope="module")
 def dataloaders():
-    np.random.seed(SEED)
-    all_data, _ = build_features(DATA_DIR, YEARS, ALL_FEATURES)
-    return get_dataloaders(all_data, ALL_FEATURES, batch_size=BATCH_SIZE)
+    all_data, _, _ = build_features(DATA_DIR, YEARS, CORE_FEATURES)
+    train_dl, val_dl, test_dl, _ = get_dataloaders(
+        all_data, CORE_FEATURES, seed=SEED, batch_size=BATCH_SIZE
+    )
+    return train_dl, val_dl, test_dl
 
 
 @pytest.fixture(scope="module")
@@ -41,17 +43,17 @@ def expected():
 
 
 def test_x_values(first_batch, expected) -> None:
-    x, _, _ = first_batch
+    x, _, _, _ = first_batch
     torch.testing.assert_close(x, expected["x"])
 
 
 def test_cat_ids_values(first_batch, expected) -> None:
-    _, cat, _ = first_batch
+    _, cat, _, _ = first_batch
     assert torch.equal(cat, expected["cat"])
 
 
 def test_y_values(first_batch, expected) -> None:
-    _, _, y = first_batch
+    _, _, y, _ = first_batch
     torch.testing.assert_close(y, expected["y"])
 
 
@@ -66,7 +68,7 @@ def test_generate_snapshot(dataloaders, request: pytest.FixtureRequest) -> None:
     if not request.config.getoption("--snapshot", default=False):
         pytest.skip("Pass --snapshot to regenerate")
     train_dl, val_dl, test_dl = dataloaders
-    x, cat, y = next(iter(train_dl))
+    x, cat, y, _ = next(iter(train_dl))
     SNAPSHOT_PATH.parent.mkdir(parents=True, exist_ok=True)
     torch.save(
         {

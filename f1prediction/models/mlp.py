@@ -17,6 +17,7 @@ class MLPModel(nn.Module):
         in_dim = num_numerical_features + (cfg.embedding_dim * len(vocab_lens))
         for _ in range(cfg.num_hidden_layers):
             layers.append(nn.Linear(in_dim, cfg.hidden_dim))
+            layers.append(nn.LayerNorm(cfg.hidden_dim))
             layers.append(nn.ReLU())
             in_dim = cfg.hidden_dim
         layers.append(nn.Linear(in_dim, 1))

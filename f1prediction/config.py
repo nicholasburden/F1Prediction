@@ -31,6 +31,7 @@ class TrainingConfig(BaseModel):
     device: Literal["cpu", "mps"]
     target_sessions: list[str]
     years: list[int]
+    feature_sets: list[Literal["core", "lookback"]] = ["core", "lookback"]
     train_metrics: list[MetricConfig] = [MetricConfig(type="mae")] + [
         MetricConfig(type="within_k", k=float(k)) for k in range(1, 7)
     ]
@@ -40,6 +41,7 @@ class TrainingConfig(BaseModel):
     wandb_group: str | None = None
     data_dir: Path
     output_dir: Path
+    full_data: bool = False
 
 
 _SHORT_NAMES: dict[str, str] = {
@@ -63,6 +65,7 @@ _EXCLUDED_FIELDS = {
     "data_dir",
     "output_dir",
     "wandb_group",
+    "feature_sets",
 }
 
 
@@ -84,7 +87,10 @@ class Config(BaseModel):
         return f"{config_name(self)}_{ts}"
 
     def run_dir(self) -> Path:
-        return self.training.output_dir / self.run_name()
+        base = self.training.output_dir
+        if self.training.wandb_group is not None:
+            base = base / self.training.wandb_group
+        return base / self.run_name()
 
     def to_flat_dict(self) -> dict[str, object]:
         d: dict[str, object] = {}

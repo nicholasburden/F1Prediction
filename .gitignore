@@ -3,7 +3,15 @@ cache/
 runs/
 wandb/
 prepared/
+outputs/
+logs/
 __pycache__/
 *.pyc
 .venv/
 .mypy_cache/
+.pytest_cache/
+.ruff_cache/
+.claude/
+*.db
+*.log
+.DS_Store

@@ -34,6 +34,7 @@ class GlobalFeatureSpec:
     name: str
     category: str
     fn: Callable[[pl.LazyFrame], pl.LazyFrame]
+    fill_null: float = 0.0
 
 
 class FeatureRegistry:
@@ -109,7 +110,10 @@ class FeatureRegistry:
 
     @property
     def null_fill_map(self) -> dict[str, float]:
-        return {s.name: s.fill_null for s in self._specs}
+        return {
+            **{s.name: s.fill_null for s in self._specs},
+            **{s.name: s.fill_null for s in self._global_specs},
+        }
 
     def apply_group(
         self,
@@ -126,6 +130,10 @@ class FeatureRegistry:
         )
 
     def apply_global(self, df: pl.LazyFrame) -> pl.LazyFrame:
+        # Materialise between specs: each rolling/lookback feature stacks a
+        # join + sort + with_row_index, and chaining several lazily blows up
+        # the polars physical-plan builder (recursive LP traversal hangs
+        # indefinitely and consumes tens of GB before any execution starts).
         for spec in self._global_specs:
-            df = spec.fn(df)
+            df = spec.fn(df).collect().lazy()
         return df

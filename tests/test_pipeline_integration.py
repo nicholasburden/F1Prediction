@@ -8,7 +8,7 @@ import polars as pl
 import pytest
 
 from f1prediction.data.constants import DATA_DIR
-from f1prediction.data.features import ALL_FEATURES
+from f1prediction.data.features import CORE_FEATURES
 from f1prediction.data.pipeline import build_features
 
 SNAPSHOT_PATH = Path(__file__).parent / "snapshots" / "features_2020.parquet"
@@ -17,7 +17,7 @@ YEARS = [2020]
 
 @pytest.fixture(scope="module")
 def features_df() -> pl.DataFrame:
-    df, _ = build_features(DATA_DIR, YEARS, ALL_FEATURES)
+    df, _, _ = build_features(DATA_DIR, YEARS, CORE_FEATURES)
     return df
 
 

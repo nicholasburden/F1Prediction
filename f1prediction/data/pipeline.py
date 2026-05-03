@@ -10,23 +10,45 @@ from pathlib import Path
 import polars as pl
 
 from f1prediction.data.constants import DataTable, Session
+from f1prediction.data.features import attach_session_ord
 from f1prediction.data.registry import SESSION_KEYS, FeatureRegistry
+
+_COMPOUND_MAP: dict[str, str] = {
+    "HYPERSOFT": "SOFT",
+    "ULTRASOFT": "SOFT",
+    "SUPERSOFT": "SOFT",
+    "SOFT": "SOFT",
+    "MEDIUM": "MEDIUM",
+    "HARD": "HARD",
+    "SUPERHARD": "HARD",
+    "INTERMEDIATE": "INTERMEDIATE",
+    "WET": "WET",
+}
 
 
 def _encode_categoricals(
     df: pl.DataFrame,
     onehot: list[str],
     embedding: list[str],
-) -> tuple[pl.DataFrame, dict[str, int]]:
+    mappings: dict[str, dict[object, int]] | None = None,
+) -> tuple[pl.DataFrame, dict[str, int], dict[str, dict[object, int]]]:
+    """Encode embedding columns to int ids. If ``mappings`` is provided, reuse
+    the saved mapping (with ``default=0`` for unseen values); otherwise derive
+    a fresh mapping from the data. Returns ``(df, vocab_sizes, mappings)``."""
     if onehot:
         df = df.to_dummies(onehot)
     vocab_size: dict[str, int] = {}
+    out_mappings: dict[str, dict[object, int]] = {}
     for col in embedding:
-        vocab = sorted(df[col].drop_nulls().unique().to_list())
-        vocab_size[col] = len(vocab) + 1
-        mapping = {v: i + 1 for i, v in enumerate(vocab)}
+        if mappings is not None and col in mappings:
+            mapping = mappings[col]
+        else:
+            vocab = sorted(df[col].drop_nulls().unique().to_list())
+            mapping = {v: i + 1 for i, v in enumerate(vocab)}
+        out_mappings[col] = mapping
+        vocab_size[col] = len(mapping) + 1
         df = df.with_columns(pl.col(col).replace(mapping, default=0).cast(pl.Int32))
-    return df, vocab_size
+    return df, vocab_size, out_mappings
 
 
 def _get_track_id(event_dir: Path) -> str:
@@ -74,6 +96,19 @@ def _load_data(data_dir: Path, years: list[int]) -> dict[DataTable, pl.LazyFrame
                     )
                     if file_type == "results":
                         lf = lf.rename({"Abbreviation": "Driver"})
+                    elif file_type == "laps":
+                        lf = lf.with_columns(
+                            pl.col("Compound").replace_strict(
+                                _COMPOUND_MAP, default=None
+                            ),
+                            (
+                                pl.col("LapNumber")
+                                - pl.col("LapNumber")
+                                .min()
+                                .over(["Driver", "Stint"])
+                                + 1
+                            ).alias("TyreLife"),
+                        )
                     frames[file_type].append(lf)
 
     return {
@@ -87,7 +122,8 @@ def build_features(
     data_dir: Path,
     years: list[int],
     feature_registry: FeatureRegistry,
-) -> tuple[pl.DataFrame, dict[str, int]]:
+    vocab_mappings: dict[str, dict[object, int]] | None = None,
+) -> tuple[pl.DataFrame, dict[str, int], dict[str, dict[object, int]]]:
     data = _load_data(data_dir, years)
 
     features = (
@@ -104,8 +140,11 @@ def build_features(
         )
     )
 
-    features = feature_registry.apply_global(features)
-
+    # Position is joined in here (before apply_global) so global feature
+    # functions can reference it (e.g. for cumulative championship points).
+    # Selection of feature columns downstream is name-based via the registry,
+    # so Position does not leak into the model inputs — but any refactor that
+    # iterates all columns as features would leak the target.
     event_keys = ["SessionId", "EventId", "Year"]
     num_drivers = (
         data["results"]
@@ -123,12 +162,18 @@ def build_features(
             on=event_keys,
         )
         .with_columns(
-            pl.when(pl.col("SessionId").is_in(["Q", "R"]))
+            pl.when(pl.col("SessionId").is_in(["Q", "R", "Sprint"]))
             .then(pl.col("Position").fill_null(pl.col("NumDrivers")))
             .otherwise(pl.col("Position").fill_null(0))
-            .alias("Position")
+            .alias("Position"),
+            pl.col("grid_position")
+            .fill_null(pl.col("NumDrivers"))
+            .alias("grid_position"),
         )
     )
+
+    features = feature_registry.apply_global(features)
+    features = attach_session_ord(features)
 
     fill_map = feature_registry.null_fill_map
     features = features.with_columns(
@@ -140,7 +185,10 @@ def build_features(
     embedding = feature_registry.embedding_features
 
     vocab_len_dict: dict[str, int] = {}
+    out_mappings: dict[str, dict[object, int]] = {}
     if onehot or embedding:
-        result, vocab_len_dict = _encode_categoricals(result, onehot, embedding)
+        result, vocab_len_dict, out_mappings = _encode_categoricals(
+            result, onehot, embedding, vocab_mappings
+        )
 
-    return result, vocab_len_dict
+    return result, vocab_len_dict, out_mappings

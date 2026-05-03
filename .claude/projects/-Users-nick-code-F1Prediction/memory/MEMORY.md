@@ -1,1 +1,0 @@
-- [Explicit lookups](feedback_explicit_lookups.md) — use named keys, never assume position in collections

@@ -6,12 +6,12 @@ import polars as pl
 import pytest
 
 from f1prediction.data.constants import DataTable
-from f1prediction.data.features import ALL_FEATURES, grid_position_norm, gap_to_fastest
+from f1prediction.data.features import CORE_FEATURES, grid_position_norm, gap_to_fastest
 from f1prediction.data.registry import SESSION_KEYS
 
 
 def _agg_feature(name: str, table: DataTable, df: pl.DataFrame) -> pl.DataFrame:
-    spec = next(s for s in ALL_FEATURES._specs if s.name == name)
+    spec = next(s for s in CORE_FEATURES._specs if s.name == name)
     keys = list(SESSION_KEYS[table])
     return df.group_by(keys).agg(spec.expr.alias(name))
 

@@ -1,6 +1,7 @@
 import copy
 import itertools
 import time
+from pathlib import Path
 
 import hydra
 import numpy as np
@@ -11,8 +12,18 @@ from torch import nn
 import wandb
 
 from f1prediction.config import Config, MLPModelConfig, ModelConfig, TrainingConfig
-from f1prediction.data.dataloader import F1DataLoader, get_dataloaders
-from f1prediction.data.features import ALL_FEATURES
+from f1prediction.data.dataloader import (
+    F1DataLoader,
+    get_dataloaders,
+    get_full_dataloader,
+)
+from f1prediction.data.features import CORE_FEATURES, LOOKBACK_FEATURES
+from f1prediction.data.registry import FeatureRegistry
+
+_FEATURE_SETS: dict[str, FeatureRegistry] = {
+    "core": CORE_FEATURES,
+    "lookback": LOOKBACK_FEATURES,
+}
 from f1prediction.data.pipeline import build_features
 from f1prediction.models.mlp import MLPModel
 from f1prediction.training.metrics import Metric
@@ -123,33 +134,30 @@ def evaluate(
     return results
 
 
-def train_model(
-    config: Config, should_log: bool = True, save_model: bool = True
-) -> float:
-    """Train a model with the given config. Returns best validation MAE."""
-    cfg = config.training
-    mcfg = config.model
+def train_with_dataloaders(
+    cfg: TrainingConfig,
+    mcfg: ModelConfig,
+    train_dl: F1DataLoader,
+    val_dl: F1DataLoader | None,
+    schema,
+    vocab_lens: list[int],
+    wandb_run=None,
+    should_log: bool = True,
+) -> tuple[float, int, nn.Module]:
+    """Inner training loop. Builds model/loss/optimizer/metrics from ``cfg``,
+    iterates over ``train_dl`` (and optionally ``val_dl``), and returns
+    ``(best_loss, best_epoch, model)``.
 
-    run_dir = config.run_dir()
-    if run_dir.exists():
-        raise FileExistsError(f"Run directory already exists: {run_dir}")
-    run_dir.mkdir(parents=True)
-    (run_dir / "config.json").write_text(config.model_dump_json(indent=2))
+    With a ``val_dl``: val-based early stopping; the returned model has the
+    best-epoch weights restored. Without one: requires ``cfg.num_epochs`` and
+    runs that many epochs end-to-end (no early stopping); returned best_loss is
+    final train MAE and best_epoch is ``cfg.num_epochs``.
+    """
+    if val_dl is None and cfg.num_epochs is None:
+        raise ValueError("Either val_dl or cfg.num_epochs must be set")
 
     np.random.seed(cfg.seed)
     torch.manual_seed(cfg.seed)
-
-    all_data, vocab_dict = build_features(cfg.data_dir, cfg.years, ALL_FEATURES)
-    vocab_lens = [vocab_dict[col] for col in ALL_FEATURES.embedding_features]
-
-    training_feature_dropout = {"driver_id": cfg.driver_dropout}
-    train_dl, val_dl, test_dl, schema = get_dataloaders(
-        all_data,
-        ALL_FEATURES,
-        cfg.batch_size,
-        cfg.target_sessions,
-        training_feature_dropout,
-    )
 
     model = build_model(mcfg, len(schema.numeric_cols), vocab_lens, cfg.device)
     loss_fn = build_loss(cfg)
@@ -166,66 +174,144 @@ def train_model(
         range(cfg.num_epochs) if cfg.num_epochs is not None else itertools.count()
     )
 
+    train_results: dict[str, float] = {}
+    for t in epoch_iter:
+        epoch_start = time.perf_counter()
+        if should_log:
+            print(f"Epoch {t + 1}\n-------------------------------")
+        train_results = train_epoch(
+            train_dl, model, loss_fn, optimizer, train_metrics, cfg, should_log
+        )
+        log_payload: dict[str, float] = {
+            f"train/{k}": v for k, v in train_results.items()
+        }
+
+        if val_dl is not None:
+            val_results = evaluate(
+                val_dl, model, val_metrics, cfg.device, "Val", should_log
+            )
+            log_payload.update({f"val/{k}": v for k, v in val_results.items()})
+        if wandb_run is not None:
+            wandb_run.log(log_payload)
+
+        epoch_time = time.perf_counter() - epoch_start
+        if should_log:
+            print(f"Epoch time: {epoch_time:.3f}s")
+
+        if val_dl is None:
+            continue
+
+        val_loss = val_results["mae"]
+        if val_loss < best_loss - cfg.min_delta:
+            best_loss = val_loss
+            best_epoch = t + 1
+            best_weights = copy.deepcopy(model.state_dict())
+            patience_counter = 0
+        else:
+            patience_counter += 1
+        if patience_counter >= cfg.patience:
+            if should_log:
+                print(
+                    f"Early stopping, best val loss {best_loss}, epoch {best_epoch}"
+                )
+            break
+
+    if val_dl is None:
+        assert cfg.num_epochs is not None
+        return train_results["mae"], cfg.num_epochs, model
+
+    assert best_weights is not None
+    model.load_state_dict(best_weights)
+    return best_loss, best_epoch, model
+
+
+def train_model(
+    config: Config, should_log: bool = True, save_model: bool = True
+) -> tuple[float, int, Path]:
+    """Train a model with the given config. Returns
+    ``(best_loss, best_epoch, run_dir)``: val MAE + 1-indexed epoch in normal
+    mode, or final train MAE + ``num_epochs`` in ``full_data`` mode."""
+    cfg = config.training
+    mcfg = config.model
+
+    if cfg.full_data and cfg.num_epochs is None:
+        raise ValueError("full_data=True requires num_epochs to be set (no early stopping)")
+
+    run_dir = config.run_dir()
+    if run_dir.exists():
+        raise FileExistsError(f"Run directory already exists: {run_dir}")
+    run_dir.mkdir(parents=True)
+    (run_dir / "config.json").write_text(config.model_dump_json(indent=2))
+
+    features = sum(
+        (_FEATURE_SETS[name] for name in cfg.feature_sets[1:]),
+        _FEATURE_SETS[cfg.feature_sets[0]],
+    )
+    all_data, vocab_dict, vocab_mappings = build_features(
+        cfg.data_dir, cfg.years, features
+    )
+    vocab_lens = [vocab_dict[col] for col in features.embedding_features]
+
+    training_feature_dropout = {"driver_id": cfg.driver_dropout}
+    if cfg.full_data:
+        train_dl, schema = get_full_dataloader(
+            all_data,
+            features,
+            seed=cfg.seed,
+            batch_size=cfg.batch_size,
+            target_sessions=cfg.target_sessions,
+            training_feature_dropout=training_feature_dropout,
+        )
+        val_dl: F1DataLoader | None = None
+        test_dl: F1DataLoader | None = None
+    else:
+        train_dl, val_dl, test_dl, schema = get_dataloaders(
+            all_data,
+            features,
+            seed=cfg.seed,
+            batch_size=cfg.batch_size,
+            target_sessions=cfg.target_sessions,
+            training_feature_dropout=training_feature_dropout,
+        )
+
     with wandb.init(
         project="f1prediction",
         name=run_dir.name,
         group=cfg.wandb_group,
         config=config.to_flat_dict(),
     ) as run:
-        for t in epoch_iter:
-            epoch_start = time.perf_counter()
-            if should_log:
-                print(f"Epoch {t + 1}\n-------------------------------")
-            train_results = train_epoch(
-                train_dl, model, loss_fn, optimizer, train_metrics, cfg, should_log
-            )
-            val_results = evaluate(
-                val_dl, model, val_metrics, cfg.device, "Val", should_log
-            )
-            run.log(
-                {
-                    **{f"train/{k}": v for k, v in train_results.items()},
-                    **{f"val/{k}": v for k, v in val_results.items()},
-                }
-            )
-
-            val_loss = val_results["mae"]
-            epoch_time = time.perf_counter() - epoch_start
-            if should_log:
-                print(f"Epoch time: {epoch_time:.3f}s")
-
-            if val_loss < best_loss - cfg.min_delta:
-                best_loss = val_loss
-                best_epoch = t + 1
-                best_weights = copy.deepcopy(model.state_dict())
-                patience_counter = 0
-            else:
-                patience_counter += 1
-
-            if patience_counter >= cfg.patience:
-                if should_log:
-                    print(
-                        f"Early stopping, best val loss {best_loss}, epoch {best_epoch}"
-                    )
-                break
-
-        assert best_weights is not None
-        model.load_state_dict(best_weights)
-
-        test_results = evaluate(
-            test_dl, model, val_metrics, cfg.device, "Test", should_log
+        best_loss, best_epoch, model = train_with_dataloaders(
+            cfg, mcfg, train_dl, val_dl, schema, vocab_lens,
+            wandb_run=run, should_log=should_log,
         )
-        run.log({f"test/{k}": v for k, v in test_results.items()})
+
+        if test_dl is not None:
+            val_metrics = [mc.build() for mc in cfg.val_metrics]
+            test_results = evaluate(
+                test_dl, model, val_metrics, cfg.device, "Test", should_log
+            )
+            run.log({f"test/{k}": v for k, v in test_results.items()})
 
         if save_model:
-            model_path = run_dir / "model.pt"
-            torch.save(model.state_dict(), model_path)
+            checkpoint_path = run_dir / "checkpoint.pt"
+            torch.save(
+                {
+                    "model_state_dict": model.state_dict(),
+                    "numeric_cols": schema.numeric_cols,
+                    "embedding_cols": schema.embedding_cols,
+                    "norm_mean": schema.norm_stats.mean,
+                    "norm_std": schema.norm_stats.std,
+                    "vocab_lens": vocab_lens,
+                    "vocab_mappings": vocab_mappings,
+                },
+                checkpoint_path,
+            )
             if should_log:
-                print(f"Model saved to {model_path}")
+                print(f"Checkpoint saved to {checkpoint_path}")
 
     if should_log:
         print("Done!")
-    return best_loss
+    return best_loss, best_epoch, run_dir
 
 
 @hydra.main(config_path="../../configs", config_name="train", version_base=None)

@@ -63,16 +63,15 @@ def _attach_targets(df: pl.DataFrame, target_sessions: list[str]) -> pl.DataFram
             pl.col("SessionId").alias("TargetSession"),
             (pl.col("Position") / pl.col("NumDrivers")).alias("Target"),
             pl.col("NumDrivers").alias("TargetNumDrivers"),
+            pl.col("_session_ord").alias("_target_session_ord"),
         )
         .filter(pl.col("Target").is_not_null())
     )
     joined = df.join(targets, on=KEY_COLS)
-
-    session_idx = {s: i for i, s in enumerate(SESSION_ORDER)}
-    target_ord = pl.col("TargetSession").replace(session_idx).cast(pl.Int32)
-    session_ord = pl.col("SessionId").replace(session_idx).cast(pl.Int32)
-
-    return joined.filter(session_ord < target_ord)
+    return (
+        joined.filter(pl.col("_session_ord") < pl.col("_target_session_ord"))
+        .drop("_session_ord", "_has_sprint", "_target_session_ord")
+    )
 
 
 def _pivot_df(df: pl.DataFrame, event_wide_features: list[str]) -> pl.DataFrame:
