@@ -27,6 +27,16 @@ class FeatureSpec:
     encoding: Encoding = "numeric"
     event_wide: bool = False
     fill_null: float = 0.0
+    # When True, the value is treated as available at inference for any future
+    # session (e.g. weather, where the inference path fills future sessions
+    # from a forecast). Such features are NOT masked out by the partial-
+    # weekend cutoff augmentation in the dataset.
+    known_at_inference: bool = False
+    # Specs sharing a non-None ``dropout_group`` are dropped together as a
+    # block during training (one bernoulli per group per sample), matching
+    # inference paths where a whole class of features may be unavailable
+    # (e.g. weather forecasts too far ahead to be reliable).
+    dropout_group: str | None = None
 
 
 @dataclass(frozen=True)
@@ -35,6 +45,10 @@ class GlobalFeatureSpec:
     category: str
     fn: Callable[[pl.LazyFrame], pl.LazyFrame]
     fill_null: float = 0.0
+    # See FeatureSpec.known_at_inference. Lookback-style globals that only
+    # depend on prior events should set this — the cutoff augmentation then
+    # keeps them visible across all partial-weekend variants.
+    known_at_inference: bool = False
 
 
 class FeatureRegistry:
@@ -107,6 +121,46 @@ class FeatureRegistry:
     @property
     def event_wide_features(self) -> list[str]:
         return [s.name for s in self._specs if s.event_wide]
+
+    @property
+    def known_at_inference_features(self) -> list[str]:
+        return [s.name for s in self._specs if s.known_at_inference] + [
+            s.name for s in self._global_specs if s.known_at_inference
+        ]
+
+    @property
+    def target_session_features(self) -> list[str]:
+        """Per-session FeatureSpec entries whose target-session value is
+        legitimately known at inference (e.g. weather via forecast). The
+        dataset carries their target-session value through as
+        ``target_<col>``. Setting ``known_at_inference=True`` on a per-
+        session feature whose value is NOT actually known at inference
+        is a lookahead bug."""
+        return [
+            s.name for s in self._specs
+            if s.known_at_inference and not s.event_wide
+        ]
+
+    @property
+    def feature_groups(self) -> dict[str, list[str]]:
+        """Map ``dropout_group`` → list of spec names in that group."""
+        groups: dict[str, list[str]] = {}
+        for s in self._specs:
+            if s.dropout_group is not None:
+                groups.setdefault(s.dropout_group, []).append(s.name)
+        return groups
+
+    @property
+    def session_specific_features(self) -> list[str]:
+        """Features that vary by session and are not 'known at inference' —
+        these get masked out for future sessions in the partial-weekend
+        cutoff augmentation."""
+        return [
+            s.name for s in self._specs
+            if not s.event_wide and not s.known_at_inference
+        ] + [
+            s.name for s in self._global_specs if not s.known_at_inference
+        ]
 
     @property
     def null_fill_map(self) -> dict[str, float]:

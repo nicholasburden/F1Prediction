@@ -12,7 +12,6 @@ from f1prediction.config import Config, MLPModelConfig, TrainingConfig
 from f1prediction.training.refit import full_refit
 from f1prediction.training.train import train_model
 
-STUDY_NAME = "f1prediction"
 STORAGE = "sqlite:///sweep.db"
 
 
@@ -99,7 +98,7 @@ if __name__ == "__main__":
     )
 
     study = optuna.create_study(
-        study_name=STUDY_NAME,
+        study_name=SWEEP_WANDB_GROUP,
         storage=STORAGE,
         direction="minimize",
         load_if_exists=True,
@@ -116,7 +115,7 @@ if __name__ == "__main__":
     sweep_dir.mkdir(parents=True, exist_ok=True)
     (sweep_dir / "sweep_meta.json").write_text(
         json.dumps(
-            {"study_name": STUDY_NAME, "storage": STORAGE},
+            {"study_name": SWEEP_WANDB_GROUP, "storage": STORAGE},
             indent=2,
         )
     )

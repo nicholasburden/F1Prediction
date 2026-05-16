@@ -1,0 +1,117 @@
+{
+  "ALB": {
+    "full_name": "ALB",
+    "team": "Williams",
+    "image": null
+  },
+  "ALO": {
+    "full_name": "ALO",
+    "team": "Aston Martin",
+    "image": null
+  },
+  "ANT": {
+    "full_name": "ANT",
+    "team": "Mercedes",
+    "image": null
+  },
+  "BEA": {
+    "full_name": "BEA",
+    "team": "Haas F1 Team",
+    "image": null
+  },
+  "BOR": {
+    "full_name": "BOR",
+    "team": "Audi",
+    "image": null
+  },
+  "BOT": {
+    "full_name": "BOT",
+    "team": "Cadillac",
+    "image": null
+  },
+  "COL": {
+    "full_name": "COL",
+    "team": "Alpine",
+    "image": null
+  },
+  "CRA": {
+    "full_name": "CRA",
+    "team": "Aston Martin",
+    "image": null
+  },
+  "GAS": {
+    "full_name": "GAS",
+    "team": "Alpine",
+    "image": null
+  },
+  "HAD": {
+    "full_name": "HAD",
+    "team": "Red Bull Racing",
+    "image": null
+  },
+  "HAM": {
+    "full_name": "HAM",
+    "team": "Ferrari",
+    "image": null
+  },
+  "HUL": {
+    "full_name": "HUL",
+    "team": "Audi",
+    "image": null
+  },
+  "LAW": {
+    "full_name": "LAW",
+    "team": "Racing Bulls",
+    "image": null
+  },
+  "LEC": {
+    "full_name": "LEC",
+    "team": "Ferrari",
+    "image": null
+  },
+  "LIN": {
+    "full_name": "LIN",
+    "team": "Racing Bulls",
+    "image": null
+  },
+  "NOR": {
+    "full_name": "NOR",
+    "team": "McLaren",
+    "image": null
+  },
+  "OCO": {
+    "full_name": "OCO",
+    "team": "Haas F1 Team",
+    "image": null
+  },
+  "PER": {
+    "full_name": "PER",
+    "team": "Cadillac",
+    "image": null
+  },
+  "PIA": {
+    "full_name": "PIA",
+    "team": "McLaren",
+    "image": null
+  },
+  "RUS": {
+    "full_name": "RUS",
+    "team": "Mercedes",
+    "image": null
+  },
+  "SAI": {
+    "full_name": "SAI",
+    "team": "Williams",
+    "image": null
+  },
+  "STR": {
+    "full_name": "STR",
+    "team": "Aston Martin",
+    "image": null
+  },
+  "VER": {
+    "full_name": "VER",
+    "team": "Red Bull Racing",
+    "image": null
+  }
+}

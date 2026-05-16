@@ -265,45 +265,46 @@ def cum_champ_points(df: pl.LazyFrame) -> pl.LazyFrame:
 
 CORE_FEATURES = FeatureRegistry(
     specs=[
-        # --- Event-level (results table, event grain) ---
+        # --- Regulations (event-wide, derived from year) ---
         FeatureSpec(
             "era_min_weight",
-            "core",
+            "regulations",
             _year_lookup(_ERA_MIN_WEIGHT_KG),
             "results",
             event_wide=True,
         ),
         FeatureSpec(
             "era_fuel_limit",
-            "core",
+            "regulations",
             _year_lookup(_ERA_FUEL_LIMIT_KG),
             "results",
             event_wide=True,
         ),
         FeatureSpec(
             "era_budget_cap",
-            "core",
+            "regulations",
             _year_lookup(_ERA_BUDGET_CAP_M),
             "results",
             event_wide=True,
         ),
         FeatureSpec(
             "era_ground_effect",
-            "core",
+            "regulations",
             _year_lookup(_ERA_GROUND_EFFECT),
             "results",
             event_wide=True,
         ),
         FeatureSpec(
             "era_has_drs",
-            "core",
+            "regulations",
             _year_lookup(_ERA_HAS_DRS),
             "results",
             event_wide=True,
         ),
+        # --- Identity (categorical embeddings, event-wide) ---
         FeatureSpec(
             "driver_id",
-            "core",
+            "identity",
             pl.col("Driver").first(),
             "results",
             encoding="embedding",
@@ -311,7 +312,7 @@ CORE_FEATURES = FeatureRegistry(
         ),
         FeatureSpec(
             "team_id",
-            "core",
+            "identity",
             pl.col("TeamName").first(),
             "results",
             encoding="embedding",
@@ -319,106 +320,163 @@ CORE_FEATURES = FeatureRegistry(
         ),
         FeatureSpec(
             "event_id",
-            "core",
+            "identity",
             pl.col("EventId").first(),
             "results",
             event_wide=True,
         ),
         FeatureSpec(
             "track_id",
-            "core",
+            "identity",
             pl.col("TrackName").first(),
             "results",
             encoding="embedding",
             event_wide=True,
         ),
-        # --- Session-level results ---
+        # --- Qualifying (session-level results) ---
         FeatureSpec(
             "grid_position",
-            "core",
+            "qualifying",
             pl.col("GridPosition").first(ignore_nulls=True),
             "results",
         ),
-        # --- Session-level laps ---
+        # --- Pace (session-level lap times) ---
         FeatureSpec(
             "min_lap_time",
-            "core",
+            "pace",
             pl.col("LapTime").min(),
             "laps",
             fill_null=999.0,
         ),
         FeatureSpec(
             "min_lap_time_soft",
-            "core",
+            "pace",
             pl.col("LapTime").filter(pl.col("Compound") == "SOFT").min(),
             "laps",
             fill_null=999.0,
         ),
         FeatureSpec(
             "min_lap_time_medium",
-            "core",
+            "pace",
             pl.col("LapTime").filter(pl.col("Compound") == "MEDIUM").min(),
             "laps",
             fill_null=999.0,
         ),
         FeatureSpec(
             "min_lap_time_hard",
-            "core",
+            "pace",
             pl.col("LapTime").filter(pl.col("Compound") == "HARD").min(),
             "laps",
             fill_null=999.0,
         ),
         FeatureSpec(
             "min_lap_time_wet",
-            "core",
+            "pace",
             pl.col("LapTime").filter(pl.col("Compound") == "WET").min(),
             "laps",
             fill_null=999.0,
         ),
         FeatureSpec(
             "min_lap_time_intermediate",
-            "core",
+            "pace",
             pl.col("LapTime").filter(pl.col("Compound") == "INTERMEDIATE").min(),
             "laps",
             fill_null=999.0,
         ),
         FeatureSpec(
             "long_run_pace",
-            "core",
+            "pace",
             pl.col("LapTime").filter(pl.col("TyreLife") > 5).mean(),
             "laps",
             fill_null=999.0,
         ),
-        FeatureSpec("max_speed_i1", "core", pl.col("SpeedI1").max(), "laps"),
-        FeatureSpec("max_speed_i2", "core", pl.col("SpeedI2").max(), "laps"),
-        FeatureSpec("max_speed_fl", "core", pl.col("SpeedFL").max(), "laps"),
-        FeatureSpec("max_speed_st", "core", pl.col("SpeedST").max(), "laps"),
-        # --- Session-level weather ---
+        # --- Speed (session-level speed-trap maxima) ---
+        FeatureSpec("max_speed_i1", "speed", pl.col("SpeedI1").max(), "laps"),
+        FeatureSpec("max_speed_i2", "speed", pl.col("SpeedI2").max(), "laps"),
+        FeatureSpec("max_speed_fl", "speed", pl.col("SpeedFL").max(), "laps"),
+        FeatureSpec("max_speed_st", "speed", pl.col("SpeedST").max(), "laps"),
+        # --- Weather (session-level; treated as known at inference because
+        # the inference path fills future sessions from a forecast, but
+        # block-droppable so the model also trains on the no-forecast case) ---
         FeatureSpec(
-            "any_rain", "core", pl.col("Rainfall").max().cast(pl.Float32), "weather"
+            "any_rain",
+            "weather",
+            pl.col("Rainfall").max().cast(pl.Float32),
+            "weather",
+            known_at_inference=True,
+            dropout_group="weather",
         ),
         FeatureSpec(
-            "mean_rain", "core", pl.col("Rainfall").mean().cast(pl.Float32), "weather"
+            "mean_rain",
+            "weather",
+            pl.col("Rainfall").mean().cast(pl.Float32),
+            "weather",
+            known_at_inference=True,
+            dropout_group="weather",
         ),
-        FeatureSpec("mean_air_temp", "core", pl.col("AirTemp").mean(), "weather"),
-        FeatureSpec("mean_track_temp", "core", pl.col("TrackTemp").mean(), "weather"),
-        FeatureSpec("mean_humidity", "core", pl.col("Humidity").mean(), "weather"),
-        FeatureSpec("mean_wind_speed", "core", pl.col("WindSpeed").mean(), "weather"),
+        FeatureSpec(
+            "mean_air_temp",
+            "weather",
+            pl.col("AirTemp").mean(),
+            "weather",
+            known_at_inference=True,
+            dropout_group="weather",
+        ),
+        FeatureSpec(
+            "mean_track_temp",
+            "weather",
+            pl.col("TrackTemp").mean(),
+            "weather",
+            known_at_inference=True,
+            dropout_group="weather",
+        ),
+        FeatureSpec(
+            "mean_humidity",
+            "weather",
+            pl.col("Humidity").mean(),
+            "weather",
+            known_at_inference=True,
+            dropout_group="weather",
+        ),
+        FeatureSpec(
+            "mean_wind_speed",
+            "weather",
+            pl.col("WindSpeed").mean(),
+            "weather",
+            known_at_inference=True,
+            dropout_group="weather",
+        ),
     ],
     global_specs=[
-        GlobalFeatureSpec("grid_position_norm", "core", grid_position_norm),
-        GlobalFeatureSpec("gap_to_fastest", "core", gap_to_fastest),
+        GlobalFeatureSpec("grid_position_norm", "qualifying", grid_position_norm),
+        GlobalFeatureSpec("gap_to_fastest", "pace", gap_to_fastest),
     ],
 )
 
+# All lookback features depend only on prior events, so their value is
+# independent of how far the current weekend has progressed — flag them as
+# known at inference so the cutoff augmentation keeps them visible.
 LOOKBACK_FEATURES = FeatureRegistry(
     global_specs=[
-        GlobalFeatureSpec("avg_grid_pos", "lookback", avg_grid_pos(n=5, alpha=0.5)),
-        GlobalFeatureSpec("avg_finish_pos", "lookback", avg_finish_pos(n=5, alpha=0.5)),
-        GlobalFeatureSpec("cum_champ_points", "lookback", cum_champ_points),
-        GlobalFeatureSpec("dnf_rate", "lookback", dnf_rate(n=10, alpha=0.3)),
         GlobalFeatureSpec(
-            "track_avg_finish", "lookback", track_avg_finish(n=5, alpha=0.3)
+            "avg_grid_pos", "form", avg_grid_pos(n=5, alpha=0.5),
+            known_at_inference=True,
+        ),
+        GlobalFeatureSpec(
+            "avg_finish_pos", "form", avg_finish_pos(n=5, alpha=0.5),
+            known_at_inference=True,
+        ),
+        GlobalFeatureSpec(
+            "cum_champ_points", "form", cum_champ_points,
+            known_at_inference=True,
+        ),
+        GlobalFeatureSpec(
+            "dnf_rate", "form", dnf_rate(n=10, alpha=0.3),
+            known_at_inference=True,
+        ),
+        GlobalFeatureSpec(
+            "track_avg_finish", "form", track_avg_finish(n=5, alpha=0.3),
+            known_at_inference=True,
         ),
     ],
 )

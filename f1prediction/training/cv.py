@@ -63,6 +63,7 @@ def _run_fold(
         batch_size=cfg.batch_size,
         target_sessions=cfg.target_sessions,
         training_feature_dropout={"driver_id": cfg.driver_dropout},
+        training_block_dropout={"weather": cfg.weather_dropout},
     )
     vocab_lens = [vocab_dict[col] for col in features.embedding_features]
     best_loss, best_epoch, _ = train_with_dataloaders(

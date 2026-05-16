@@ -1,0 +1,165 @@
+{% extends "base.html" %}
+{% block main %}
+
+<form method="get" class="race-picker" onsubmit="return false;">
+  <label for="race">Race</label>
+  <select id="race" onchange="selectRace(this)">
+    {% if target %}
+    <option value="" {% if not explicit %}selected{% endif %}>
+      Next: {{ target.year }} · {{ target.event_name }} — {{ target.session }}{% if not target_has_pred %} (no prediction yet){% endif %}
+    </option>
+    {% endif %}
+    {% for r in history %}
+      {% if not target or r.year != target.year or r.event_id != target.event_id or r.session != target.session %}
+      <option value="{{ r.year }}|{{ r.event_id }}|{{ r.session }}"
+        {% if explicit and selected_year == r.year and selected_event == r.event_id and selected_session == r.session %}selected{% endif %}>
+        {{ r.year }} · {{ r.event_name }} — {{ r.session }}
+      </option>
+      {% endif %}
+    {% endfor %}
+  </select>
+  <button type="button" class="refresh" onclick="refresh(this)">Refresh now</button>
+</form>
+
+{% if not pred %}
+  {% if target %}
+    <h2 class="race-title">{{ target.event_name }} <span class="session-tag">{{ target.session }}</span></h2>
+    <p class="meta">next upcoming session — no prediction yet</p>
+    <p class="empty">
+      The model needs at least one preceding session of {{ target.event_name }} on
+      disk before it can predict {{ target.session }}. The page will populate
+      once that data is downloaded (the hourly job auto-downloads any past
+      preceding session of the target event).
+    </p>
+  {% else %}
+    <p class="empty">No upcoming session in the model's target list.</p>
+  {% endif %}
+{% else %}
+  <h2 class="race-title">{{ pred.event_name }} <span class="session-tag">{{ pred.session }}</span></h2>
+  <p class="meta">predicted at {{ pred.created_at }}</p>
+
+  <section class="podium">
+    {% set podium_order = [2, 1, 3] %}
+    {% for r in podium_order %}
+      {% if items|length >= r %}
+        {% set d = items[r - 1] %}
+        <div class="step step-p{{ d.rank }}">
+          <div class="step-top">
+            <div class="avatar" data-team="{{ d.team }}"
+                 {% if d.image %}style="background-image: url('{{ d.image }}')"{% endif %}>
+              {% if not d.image %}<span class="initials">{{ d.abbrev }}</span>{% endif %}
+            </div>
+            <div class="position">P{{ d.rank }}</div>
+            <div class="abbrev">{{ d.abbrev }}</div>
+            <div class="full-name">{{ d.full_name }}</div>
+            <div class="team">{{ d.team }}</div>
+          </div>
+          <div class="block">
+            <span class="pred">{{ '%.2f'|format(d.pred) }}</span>
+          </div>
+        </div>
+      {% endif %}
+    {% endfor %}
+  </section>
+
+  {% if items|length > 3 %}
+  <section class="rest">
+    <ol start="4">
+      {% for d in items[3:] %}
+      <li>
+        <span class="rank">P{{ d.rank }}</span>
+        <span class="dot" data-team="{{ d.team }}"></span>
+        <span class="abbrev">{{ d.abbrev }}</span>
+        <span class="full-name">{{ d.full_name }}</span>
+        <span class="team">{{ d.team }}</span>
+        <span class="pred">{{ '%.2f'|format(d.pred) }}</span>
+      </li>
+      {% endfor %}
+    </ol>
+  </section>
+  {% endif %}
+
+  {% if inputs %}
+  {% set total_cols = inputs|sum(attribute='n_columns') %}
+  {% set total_base = inputs|sum(attribute='n_base') %}
+  <section class="inputs">
+    <h3>
+      Model inputs
+      <span class="meta-inline">
+        {{ total_base }} feature{% if total_base != 1 %}s{% endif %} ·
+        {{ total_cols }} column{% if total_cols != 1 %}s{% endif %} ·
+        {{ inputs|length }} categor{% if inputs|length == 1 %}y{% else %}ies{% endif %}
+      </span>
+    </h3>
+
+    <div class="cat-pills">
+      {% for cat in inputs %}
+      <a href="#cat-{{ cat.name }}" class="pill" data-cat="{{ cat.name }}">
+        {{ cat.label }} <span class="pill-count">{{ cat.n_columns }}</span>
+      </a>
+      {% endfor %}
+    </div>
+
+    {% for cat in inputs %}
+    <details id="cat-{{ cat.name }}" class="cat" {% if loop.first %}open{% endif %}>
+      <summary>
+        <span class="cat-label" data-cat="{{ cat.name }}">{{ cat.label }}</span>
+        <span class="cat-count">{{ cat.n_base }} feature{% if cat.n_base != 1 %}s{% endif %} · {{ cat.n_columns }} column{% if cat.n_columns != 1 %}s{% endif %}</span>
+      </summary>
+      <table class="feature-table">
+        <thead>
+          <tr>
+            <th>Feature</th>
+            <th>Session</th>
+            <th class="num">Min</th>
+            <th class="num">Mean</th>
+            <th class="num">Max</th>
+            <th class="num">Nulls</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for base in cat.bases %}
+            {% for s in base.sessions %}
+            <tr>
+              <td class="feature-name">{{ base.base }}</td>
+              <td class="session">{{ s.session or '—' }}</td>
+              <td class="num">{% if s.stats.min is not none %}{{ '%.3g'|format(s.stats.min) }}{% else %}—{% endif %}</td>
+              <td class="num">{% if s.stats.mean is not none %}{{ '%.3g'|format(s.stats.mean) }}{% else %}—{% endif %}</td>
+              <td class="num">{% if s.stats.max is not none %}{{ '%.3g'|format(s.stats.max) }}{% else %}—{% endif %}</td>
+              <td class="num null-count">{% if s.stats.n_null %}{{ s.stats.n_null }}/{{ s.stats.n_total }}{% else %}0{% endif %}</td>
+            </tr>
+            {% endfor %}
+          {% endfor %}
+        </tbody>
+      </table>
+    </details>
+    {% endfor %}
+  </section>
+  {% else %}
+  <section class="inputs">
+    <p class="empty subtle">No feature inputs captured for this prediction (predates the feature-capture change). The next prediction will include them.</p>
+  </section>
+  {% endif %}
+{% endif %}
+
+<script>
+function selectRace(sel) {
+  const v = sel.value;
+  if (!v) { window.location = '/'; return; }
+  const [y, e, s] = v.split('|');
+  window.location = `/?year=${y}&event=${e}&session=${s}`;
+}
+async function refresh(btn) {
+  btn.disabled = true;
+  btn.textContent = 'Refreshing…';
+  try {
+    await fetch('/api/refresh', { method: 'POST' });
+    setTimeout(() => window.location.reload(), 2000);
+  } catch (e) {
+    btn.disabled = false;
+    btn.textContent = 'Refresh now';
+  }
+}
+</script>
+
+{% endblock %}

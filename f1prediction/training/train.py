@@ -253,6 +253,7 @@ def train_model(
     vocab_lens = [vocab_dict[col] for col in features.embedding_features]
 
     training_feature_dropout = {"driver_id": cfg.driver_dropout}
+    training_block_dropout = {"weather": cfg.weather_dropout}
     if cfg.full_data:
         train_dl, schema = get_full_dataloader(
             all_data,
@@ -261,6 +262,7 @@ def train_model(
             batch_size=cfg.batch_size,
             target_sessions=cfg.target_sessions,
             training_feature_dropout=training_feature_dropout,
+            training_block_dropout=training_block_dropout,
         )
         val_dl: F1DataLoader | None = None
         test_dl: F1DataLoader | None = None
@@ -272,6 +274,7 @@ def train_model(
             batch_size=cfg.batch_size,
             target_sessions=cfg.target_sessions,
             training_feature_dropout=training_feature_dropout,
+            training_block_dropout=training_block_dropout,
         )
 
     with wandb.init(

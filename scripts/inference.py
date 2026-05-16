@@ -115,36 +115,79 @@ def _drivers_from_preceding(
         results = event_path / sess / "results.parquet"
         if results.exists():
             preceding.append((idx, results))
-    if not preceding:
-        raise ValueError(
-            f"No preceding session results in {event_path}; "
-            f"cannot infer driver list for {target}"
-        )
-    preceding.sort(reverse=True)
-    df = pl.read_parquet(preceding[0][1])
-    return [
-        (row["Abbreviation"], row["TeamName"])
-        for row in df.select("Abbreviation", "TeamName").to_dicts()
-    ]
+    if preceding:
+        preceding.sort(reverse=True)
+        df = pl.read_parquet(preceding[0][1])
+        return [
+            (row["Abbreviation"], row["TeamName"])
+            for row in df.select("Abbreviation", "TeamName").to_dicts()
+        ]
+    return _drivers_from_prior_event(event_path)
 
 
-def _synthesise_target_results(
-    event_path: Path, session: str, drivers: list[tuple[str, str]]
-) -> Path | None:
-    """Write a minimal placeholder results.parquet so the pipeline produces a
-    target-session row per driver. Returns the file path if written, else None.
-    """
-    sess_dir = event_path / session
-    results_path = sess_dir / "results.parquet"
-    if results_path.exists():
-        return None
-    sess_dir.mkdir(parents=True, exist_ok=True)
+def _drivers_from_prior_event(event_path: Path) -> list[tuple[str, str]]:
+    """Pre-weekend fallback: scan events that finished before ``event_path``
+    (same year, then prior year) and return the driver list from the most
+    recent session that has results on disk."""
+    year_dir = event_path.parent
+    try:
+        current_round = int(event_path.name.split("_")[0])
+    except ValueError:
+        current_round = -1
+
+    candidates: list[Path] = []
+    for entry in sorted(year_dir.iterdir(), reverse=True):
+        if not entry.is_dir() or entry == event_path:
+            continue
+        try:
+            round_num = int(entry.name.split("_")[0])
+        except ValueError:
+            continue
+        if round_num >= current_round:
+            continue
+        candidates.append(entry)
+
+    try:
+        prev_year_dir = year_dir.parent / str(int(year_dir.name) - 1)
+    except ValueError:
+        prev_year_dir = None
+    if prev_year_dir is not None and prev_year_dir.is_dir():
+        for entry in sorted(prev_year_dir.iterdir(), reverse=True):
+            if not entry.is_dir():
+                continue
+            try:
+                int(entry.name.split("_")[0])
+            except ValueError:
+                continue
+            candidates.append(entry)
+
+    for prior in candidates:
+        for sess in reversed(SESSION_ORDER):
+            results = prior / sess / "results.parquet"
+            if results.exists():
+                df = pl.read_parquet(results)
+                return [
+                    (row["Abbreviation"], row["TeamName"])
+                    for row in df.select("Abbreviation", "TeamName").to_dicts()
+                ]
+    raise ValueError(
+        f"No preceding session results in {event_path} and no prior event "
+        "with results found; cannot infer a pre-weekend driver list."
+    )
+
+
+def _placeholder_results(
+    drivers: list[tuple[str, str]], with_position: bool = False
+) -> pl.DataFrame:
     n = len(drivers)
-    df = pl.DataFrame(
+    positions = (
+        [float(i + 1) for i in range(n)] if with_position else [None] * n
+    )
+    return pl.DataFrame(
         {
             "Abbreviation": [d for d, _ in drivers],
             "TeamName": [t for _, t in drivers],
-            "Position": [float(i + 1) for i in range(n)],
+            "Position": positions,
             "GridPosition": [None] * n,
             "Q1": [None] * n,
             "Q2": [None] * n,
@@ -164,7 +207,136 @@ def _synthesise_target_results(
             "Status": pl.Utf8,
         },
     )
-    df.write_parquet(results_path)
+
+
+def _synthesise_forecast_preceding(
+    year: int,
+    round_num: int,
+    event_path: Path,
+    target_session: str,
+    drivers: list[tuple[str, str]],
+    locations_path: Path,
+) -> list[Path]:
+    """For each preceding session of (year, round_num) that is in the future
+    and missing on disk, write a forecast-derived ``weather.parquet`` and a
+    placeholder ``results.parquet`` so the feature pipeline picks up forecast
+    weather pre-weekend. Returns the synthesised paths to be unlinked after
+    inference.
+
+    Returns ``[]`` (and prints a note) if ``locations_path`` is missing, no
+    lat/lon entry exists for the event, or every future session is beyond the
+    forecast horizon.
+    """
+    from datetime import datetime, timezone
+
+    import fastf1
+    import pandas as pd
+
+    from f1prediction.data.download import SESSION_ABBREVS, _session_dir_exists
+    from f1prediction.data.forecast import fetch_forecast, write_weather_parquet
+
+    if not locations_path.exists():
+        return []
+    locations = json.loads(locations_path.read_text())
+
+    schedule = fastf1.get_event_schedule(year, include_testing=False)
+    rows = schedule[schedule["RoundNumber"] == round_num]
+    if rows.empty:
+        return []
+    event_row = rows.iloc[0]
+    event_name = str(event_row["EventName"])
+    coords = locations.get(event_name)
+    if coords is None:
+        print(
+            f"[inference] no lat/lon for {event_name!r} in "
+            f"{locations_path.name}; skipping forecast",
+            file=sys.stderr,
+        )
+        return []
+
+    now = datetime.now(timezone.utc)
+    target_idx = SESSION_ORDER.index(target_session)
+    synthesised: list[Path] = []
+
+    for i in range(1, 6):
+        sess_name = event_row.get(f"Session{i}")
+        sess_date = event_row.get(f"Session{i}Date")
+        if not isinstance(sess_name, str) or not sess_name.strip():
+            continue
+        abbrev = SESSION_ABBREVS.get(sess_name.strip())
+        if abbrev is None or abbrev not in SESSION_ORDER:
+            continue
+        # Cover the target session too — its weather feeds the ``target_*``
+        # columns. Sessions strictly past the target are irrelevant.
+        if SESSION_ORDER.index(abbrev) > target_idx:
+            continue
+        is_target = abbrev == target_session
+        out_dir = event_path / abbrev
+        w_path = out_dir / "weather.parquet"
+        r_path = out_dir / "results.parquet"
+        # Preceding sessions: skip if the dir already exists (real data
+        # on disk). Target: ``_synthesise_target_results`` may have just
+        # created the dir for the placeholder results — only bail if
+        # ``weather.parquet`` specifically is already present.
+        if is_target:
+            if w_path.exists():
+                continue
+        elif _session_dir_exists(out_dir):
+            continue
+        if sess_date is None or pd.isna(sess_date):
+            continue
+        if hasattr(sess_date, "to_pydatetime"):
+            sess_date = sess_date.to_pydatetime()
+        if sess_date.tzinfo is None:
+            sess_date = sess_date.replace(tzinfo=timezone.utc)
+        if sess_date <= now:
+            continue
+
+        # Always write a placeholder results.parquet for preceding
+        # sessions — it provides the driver list / team_id / etc. that
+        # would otherwise come from the (now removed) PRE row. The
+        # target session's placeholder is written separately by
+        # ``_synthesise_target_results``.
+        if not is_target:
+            out_dir.mkdir(parents=True, exist_ok=True)
+            _placeholder_results(drivers, with_position=False).write_parquet(r_path)
+            synthesised.append(r_path)
+
+        forecast = fetch_forecast(coords["lat"], coords["lon"], sess_date)
+        if forecast is None:
+            print(
+                f"[inference] no forecast available for {abbrev} "
+                f"(beyond Open-Meteo's ~16-day horizon?)",
+                file=sys.stderr,
+            )
+            continue
+
+        out_dir.mkdir(parents=True, exist_ok=True)
+        write_weather_parquet(forecast, w_path)
+        synthesised.append(w_path)
+        print(
+            f"[inference] synthesised forecast {abbrev}: "
+            f"AirTemp={forecast['AirTemp']:.1f}°C "
+            f"TrackTemp={forecast['TrackTemp']:.1f}°C "
+            f"Rain={forecast['Rainfall']}",
+            file=sys.stderr,
+        )
+
+    return synthesised
+
+
+def _synthesise_target_results(
+    event_path: Path, session: str, drivers: list[tuple[str, str]]
+) -> Path | None:
+    """Write a minimal placeholder results.parquet so the pipeline produces a
+    target-session row per driver. Returns the file path if written, else None.
+    """
+    sess_dir = event_path / session
+    results_path = sess_dir / "results.parquet"
+    if results_path.exists():
+        return None
+    sess_dir.mkdir(parents=True, exist_ok=True)
+    _placeholder_results(drivers, with_position=True).write_parquet(results_path)
     return results_path
 
 
@@ -260,7 +432,7 @@ def _build_inference_inputs(
     year: int,
     event_id: int,
     target_session: str,
-) -> tuple[torch.Tensor, torch.Tensor, list[str], int]:
+) -> tuple[torch.Tensor, torch.Tensor, list[str], int, pl.DataFrame]:
     """Construct (X, cat_ids, drivers, num_drivers) for one (year, event,
     session) prediction. Mirrors the training data flow but bypasses
     ``_attach_targets`` since there is no Target to compute. Uses the
@@ -299,16 +471,68 @@ def _build_inference_inputs(
             pl.lit(target_session).alias("TargetSession"),
             pl.lit(target_num_drivers).cast(pl.UInt32).alias("TargetNumDrivers"),
             pl.lit(0.0).alias("Target"),
+            # _pivot_df expects this — pivot index column from the partial-
+            # weekend cutoff augmentation. Inference always uses the maximal
+            # cutoff (target_ord), since we feed all available data.
+            pl.lit(target_ord).cast(pl.Int64).alias("_cutoff"),
         )
     )
 
-    sessions = rows["SessionId"].unique().to_list()
+    # Mirror training's cutoff masking: when a preceding session has no real
+    # laps on disk (e.g. an upcoming weekend where FP1/SQ haven't run yet and
+    # synthesised placeholders fill the driver list), null out its session-
+    # specific feature columns so the downstream fill_null step lands on the
+    # registry sentinels. Without this, fallback values like ``gap_to_fastest
+    # = 1.0`` (the ``.otherwise(1.0)`` branch when ``min_lap_time`` is null)
+    # flow through to the model — wildly OOD vs. training-cutoff=0 samples,
+    # which see those columns filled to 0.
+    #
+    # ``build_features`` has already filled nulls in the long frame with the
+    # registry sentinels, so detect synthesised sessions by checking
+    # ``min_lap_time`` against its fill_null sentinel rather than null.
+    min_lap_sentinel = feature_registry.null_fill_map.get("min_lap_time", 999.0)
+    no_laps_sessions = (
+        rows.group_by("SessionId")
+        .agg((pl.col("min_lap_time") == min_lap_sentinel).all().alias("no_laps"))
+        .filter(pl.col("no_laps"))["SessionId"]
+        .to_list()
+    )
+    if no_laps_sessions:
+        masked = [
+            c for c in feature_registry.session_specific_features
+            if c in rows.columns
+        ]
+        is_synth = pl.col("SessionId").is_in(no_laps_sessions)
+        rows = rows.with_columns(
+            [pl.when(is_synth).then(None).otherwise(pl.col(c)).alias(c)
+             for c in masked]
+        )
+
+    # target_<col> columns mirror training's target-session weather carry-
+    # through. Read from the target session's row (populated by the forecast
+    # synthesis step) and broadcast to every driver of this event.
+    target_feature_cols = feature_registry.feature_groups.get("weather", [])
+    if target_feature_cols:
+        target_weather = (
+            all_features.filter(
+                (pl.col("Year") == year)
+                & (pl.col("EventId") == event_id)
+                & (pl.col("SessionId") == target_session)
+            )
+            .filter(pl.col("Driver").is_in(target_drivers))
+            .select(
+                "Driver",
+                *[pl.col(c).alias(f"target_{c}") for c in target_feature_cols],
+            )
+        )
+        rows = rows.join(target_weather, on="Driver", how="left")
+
     pivoted = _pivot_df(rows, feature_registry.event_wide_features)
 
     fill_map = feature_registry.null_fill_map
     pivoted = pivoted.with_columns(
         [
-            pl.col(c).fill_null(fill_map.get(_base_name(c, sessions), 0.0))
+            pl.col(c).fill_null(fill_map.get(_base_name(c), 0.0))
             for c in pivoted.columns
             if pivoted[c].null_count() > 0
         ]
@@ -316,7 +540,8 @@ def _build_inference_inputs(
 
     for c in schema.numeric_cols:
         if c not in pivoted.columns:
-            pivoted = pivoted.with_columns(pl.lit(0.0).alias(c))
+            fill = fill_map.get(_base_name(c), 0.0)
+            pivoted = pivoted.with_columns(pl.lit(fill).alias(c))
     for c in schema.embedding_cols:
         if c not in pivoted.columns:
             pivoted = pivoted.with_columns(pl.lit(0).cast(pl.Int64).alias(c))
@@ -332,7 +557,31 @@ def _build_inference_inputs(
         )
     else:
         cat_ids = torch.zeros(len(drivers), 0, dtype=torch.long)
-    return X, cat_ids, drivers, target_num_drivers
+    return X, cat_ids, drivers, target_num_drivers, pivoted
+
+
+def _features_by_driver(
+    pivoted: pl.DataFrame, schema: DatasetSchema
+) -> dict[str, dict[str, float | int | None]]:
+    """Pre-normalisation per-driver feature dict, restricted to columns that
+    actually feed the model. NaNs become None for JSON-friendliness."""
+    feature_cols = list(schema.numeric_cols) + list(schema.embedding_cols)
+    out: dict[str, dict[str, float | int | None]] = {}
+    for row in pivoted.iter_rows(named=True):
+        driver = row["Driver"]
+        slot: dict[str, float | int | None] = {}
+        for col in feature_cols:
+            val = row.get(col)
+            if val is None:
+                slot[col] = None
+            elif isinstance(val, float):
+                slot[col] = None if val != val else float(val)
+            elif isinstance(val, bool):
+                slot[col] = int(val)
+            else:
+                slot[col] = val
+        out[driver] = slot
+    return out
 
 
 def predict_session(
@@ -343,8 +592,12 @@ def predict_session(
     data_dir: Path,
     auto_download: bool = True,
     cache_dir: Path = Path("cache"),
-) -> list[tuple[str, float]]:
-    """Return a list of (driver, predicted_position) sorted best-first."""
+) -> tuple[list[tuple[str, float]], dict[str, dict[str, float | int | None]]]:
+    """Return (ordered, features_by_driver):
+    - ordered: list of (driver, predicted_position) sorted best-first
+    - features_by_driver: per-driver dict of pre-normalisation feature values
+      restricted to the columns the model receives.
+    """
     cfg = Config(**json.loads((run_dir / "config.json").read_text()))
     checkpoint_path = run_dir / "checkpoint.pt"
     if not checkpoint_path.exists():
@@ -373,16 +626,30 @@ def predict_session(
     event_id = round_num
 
     target_results = event_path / session / "results.parquet"
-    synthesised: Path | None = None
+    synthesised: list[Path] = []
+    drivers_meta: list[tuple[str, str]] | None = None
     if not target_results.exists():
         drivers_meta = _drivers_from_preceding(event_path, session)
-        synthesised = _synthesise_target_results(event_path, session, drivers_meta)
-        if synthesised is not None:
+        target_synth = _synthesise_target_results(
+            event_path, session, drivers_meta
+        )
+        if target_synth is not None:
+            synthesised.append(target_synth)
             print(
-                f"[inference] synthesised placeholder {synthesised.relative_to(data_dir)}"
+                f"[inference] synthesised placeholder {target_synth.relative_to(data_dir)}"
                 " (target session has no on-disk results)",
                 file=sys.stderr,
             )
+
+    locations_path = run_dir / "track_locations.json"
+    if locations_path.exists():
+        if drivers_meta is None:
+            drivers_meta = _drivers_from_preceding(event_path, session)
+        synthesised.extend(
+            _synthesise_forecast_preceding(
+                year, round_num, event_path, session, drivers_meta, locations_path
+            )
+        )
 
     try:
         feature_registry = sum(
@@ -400,7 +667,7 @@ def predict_session(
         model.load_state_dict(checkpoint["model_state_dict"])
         model.eval()
 
-        X, cat_ids, drivers, num_drivers = _build_inference_inputs(
+        X, cat_ids, drivers, num_drivers, pivoted = _build_inference_inputs(
             all_features, feature_registry, schema, year, event_id, session
         )
         X, cat_ids = X.to(device), cat_ids.to(device)
@@ -409,12 +676,19 @@ def predict_session(
             preds = model(X, cat_ids) * num_drivers
 
         ordered = sorted(zip(drivers, preds.tolist()), key=lambda kv: kv[1])
-        return ordered
+        features = _features_by_driver(pivoted, schema)
+        return ordered, features
     finally:
-        if synthesised is not None and synthesised.exists():
-            synthesised.unlink()
+        for p in synthesised:
+            if p.exists():
+                try:
+                    p.unlink()
+                except OSError:
+                    pass
+        # Remove now-empty session dirs created for forecast/target placeholders.
+        for parent in {p.parent for p in synthesised}:
             try:
-                synthesised.parent.rmdir()
+                parent.rmdir()
             except OSError:
                 pass
 
@@ -527,7 +801,7 @@ def main() -> None:
             file=sys.stderr,
         )
 
-    ordered = predict_session(
+    ordered, _features = predict_session(
         args.run_dir,
         args.year,
         args.event,

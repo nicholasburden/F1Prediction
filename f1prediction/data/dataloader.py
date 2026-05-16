@@ -116,6 +116,7 @@ def get_kfold_dataloaders(
     batch_size: int = 8,
     target_sessions: list[str] = ["Sprint", "Q", "R"],
     training_feature_dropout: dict[str, float] | None = None,
+    training_block_dropout: dict[str, float] | None = None,
 ) -> tuple[F1DataLoader, F1DataLoader, DatasetSchema]:
     """Build (train_dl, val_dl, schema) for one fold of K-fold CV at the event
     grain. Shuffle order is fixed by ``seed`` so folds are reproducible."""
@@ -133,6 +134,7 @@ def get_kfold_dataloaders(
         feature_registry,
         target_sessions,
         feature_dropout=training_feature_dropout,
+        block_dropout=training_block_dropout,
     )
     val_ds, _ = RacePredictionDataset.from_dataframe(
         _filter_events(all_data, val_split),
@@ -154,6 +156,7 @@ def get_full_dataloader(
     batch_size: int = 8,
     target_sessions: list[str] = ["Sprint", "Q", "R"],
     training_feature_dropout: dict[str, float] | None = None,
+    training_block_dropout: dict[str, float] | None = None,
 ) -> tuple[F1DataLoader, DatasetSchema]:
     """Build a single dataloader over all events — no val/test split. The schema
     (numeric/embedding cols + norm stats) is derived from the full dataset."""
@@ -162,6 +165,7 @@ def get_full_dataloader(
         feature_registry,
         target_sessions,
         feature_dropout=training_feature_dropout,
+        block_dropout=training_block_dropout,
     )
     return _train_loader(train_ds, batch_size, seed), schema
 
@@ -173,6 +177,7 @@ def get_dataloaders(
     batch_size: int = 8,
     target_sessions: list[str] = ["Sprint", "Q", "R"],
     training_feature_dropout: dict[str, float] | None = None,
+    training_block_dropout: dict[str, float] | None = None,
 ) -> tuple[F1DataLoader, F1DataLoader, F1DataLoader, DatasetSchema]:
     all_events = sorted(
         [
@@ -191,6 +196,7 @@ def get_dataloaders(
         feature_registry,
         target_sessions,
         feature_dropout=training_feature_dropout,
+        block_dropout=training_block_dropout,
     )
     val_ds, _ = RacePredictionDataset.from_dataframe(
         _filter_events(all_data, val_split), feature_registry, target_sessions, schema

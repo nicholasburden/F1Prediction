@@ -1,0 +1,371 @@
+:root {
+  --bg: #0e0f12;
+  --surface: #16181d;
+  --surface-2: #1d2026;
+  --text: #e8eaed;
+  --muted: #9aa0a6;
+  --accent: #e10600;
+  --gold: #f5c518;
+  --silver: #c9ccd1;
+  --bronze: #cd7f32;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 16px/1.5 -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", system-ui, sans-serif;
+}
+
+.topbar {
+  border-bottom: 1px solid #24272d;
+  padding: 1rem 1.5rem;
+  background: linear-gradient(180deg, #1a1c22, #0e0f12);
+}
+.topbar h1 {
+  margin: 0;
+  font-size: 1.25rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+.topbar h1::before {
+  content: "";
+  display: inline-block;
+  width: 4px;
+  height: 1em;
+  background: var(--accent);
+  margin-right: 0.6rem;
+  vertical-align: -0.15em;
+}
+
+.container {
+  max-width: 980px;
+  margin: 0 auto;
+  padding: 1.5rem;
+}
+
+.race-picker {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 1.5rem;
+}
+.race-picker label {
+  color: var(--muted);
+  font-size: 0.875rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+.race-picker select {
+  flex: 1;
+  padding: 0.55rem 0.75rem;
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid #2a2d34;
+  border-radius: 6px;
+  font: inherit;
+}
+.race-picker .refresh {
+  padding: 0.55rem 1rem;
+  background: var(--surface-2);
+  color: var(--text);
+  border: 1px solid #2a2d34;
+  border-radius: 6px;
+  cursor: pointer;
+  font: inherit;
+}
+.race-picker .refresh:hover { border-color: var(--accent); }
+.race-picker .refresh:disabled { opacity: 0.6; cursor: progress; }
+
+.race-title {
+  font-size: 1.6rem;
+  margin: 0.25rem 0 0.25rem;
+}
+.session-tag {
+  display: inline-block;
+  vertical-align: 0.15em;
+  font-size: 0.75rem;
+  letter-spacing: 0.1em;
+  padding: 0.2em 0.55em;
+  border: 1px solid #2a2d34;
+  border-radius: 999px;
+  color: var(--muted);
+  margin-left: 0.4rem;
+}
+.meta { color: var(--muted); margin: 0 0 1.5rem; font-size: 0.875rem; }
+.empty {
+  background: var(--surface);
+  border: 1px dashed #2a2d34;
+  padding: 1.25rem;
+  border-radius: 8px;
+  color: var(--muted);
+}
+
+/* ---------- Podium ---------- */
+
+.podium {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 1rem;
+  align-items: end;
+  margin: 2rem 0 2.5rem;
+}
+.step {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+.step-top {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin-bottom: 0.6rem;
+}
+.block {
+  width: 100%;
+  background: var(--surface);
+  border: 1px solid #2a2d34;
+  border-top-width: 4px;
+  border-radius: 6px 6px 0 0;
+  text-align: center;
+  font: 700 1.1rem ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: var(--muted);
+}
+.block .pred { display: block; padding: 0.4rem 0; }
+
+.step-p1 .block { height: 130px; border-top-color: var(--gold); }
+.step-p2 .block { height: 95px;  border-top-color: var(--silver); }
+.step-p3 .block { height: 70px;  border-top-color: var(--bronze); }
+
+.position {
+  font: 700 1rem/1 ui-monospace, monospace;
+  color: var(--muted);
+  margin-top: 0.4rem;
+}
+.step-p1 .position { color: var(--gold); }
+.step-p2 .position { color: var(--silver); }
+.step-p3 .position { color: var(--bronze); }
+.abbrev { font-weight: 700; font-size: 1.05rem; margin-top: 0.1rem; }
+.full-name { color: var(--muted); font-size: 0.85rem; }
+.step .team { color: var(--muted); font-size: 0.8rem; }
+
+.avatar {
+  width: 84px; height: 84px;
+  border-radius: 50%;
+  background-size: cover;
+  background-position: center;
+  display: flex; align-items: center; justify-content: center;
+  border: 2px solid currentColor;
+  color: #fff;
+  font: 700 1.05rem ui-monospace, monospace;
+  letter-spacing: 0.04em;
+}
+.step-p1 .avatar { width: 100px; height: 100px; }
+.avatar .initials { mix-blend-mode: normal; }
+
+/* ---------- Rest of the field ---------- */
+
+.rest ol {
+  list-style: none;
+  padding: 0; margin: 0;
+  display: flex; flex-direction: column;
+  border: 1px solid #2a2d34;
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--surface);
+}
+.rest li {
+  display: grid;
+  grid-template-columns: 3rem 1.2rem 4rem 1fr 10rem 5rem;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.55rem 0.9rem;
+  border-top: 1px solid #1f2228;
+  font-size: 0.95rem;
+}
+.rest li:first-child { border-top: none; }
+.rest .rank {
+  color: var(--muted);
+  font: 600 0.85rem ui-monospace, monospace;
+}
+.rest .abbrev { font-weight: 600; }
+.rest .full-name, .rest .team { color: var(--muted); }
+.rest .pred { font-family: ui-monospace, monospace; text-align: right; color: var(--text); }
+.dot { width: 12px; height: 12px; border-radius: 50%; background: currentColor; }
+
+/* ---------- Team colours (drive both .avatar and .dot via currentColor) ---------- */
+
+[data-team="Red Bull Racing"] { color: #1E5BC6; }
+[data-team="Mercedes"]        { color: #00D2BE; }
+[data-team="Ferrari"]         { color: #DC0000; }
+[data-team="McLaren"]         { color: #FF8000; }
+[data-team="Aston Martin"]    { color: #229971; }
+[data-team="Alpine"]          { color: #FF87BC; }
+[data-team="Williams"]        { color: #1868DB; }
+[data-team="Audi"]            { color: #00B388; }
+[data-team="Racing Bulls"]    { color: #6692FF; }
+[data-team="Haas F1 Team"]    { color: #B6BABD; }
+[data-team="Cadillac"]        { color: #8C8C8C; }
+[data-team="Unknown"]         { color: #555; }
+
+.avatar[data-team="Red Bull Racing"] { background-color: #1E5BC6; }
+.avatar[data-team="Mercedes"]        { background-color: #00322E; }
+.avatar[data-team="Ferrari"]         { background-color: #8B0000; }
+.avatar[data-team="McLaren"]         { background-color: #B85A00; }
+.avatar[data-team="Aston Martin"]    { background-color: #0C4F3C; }
+.avatar[data-team="Alpine"]          { background-color: #B43F76; }
+.avatar[data-team="Williams"]        { background-color: #0E3F8F; }
+.avatar[data-team="Audi"]            { background-color: #006B4A; }
+.avatar[data-team="Racing Bulls"]    { background-color: #2A4794; }
+.avatar[data-team="Haas F1 Team"]    { background-color: #5B6168; }
+.avatar[data-team="Cadillac"]        { background-color: #3a3a3a; }
+.avatar[data-team="Unknown"]         { background-color: #2a2d34; }
+
+@media (max-width: 640px) {
+  .rest li {
+    grid-template-columns: 2.5rem 1rem 3.5rem 1fr 5rem;
+  }
+  .rest .full-name { display: none; }
+  .step-p1 .avatar { width: 84px; height: 84px; }
+  .avatar { width: 64px; height: 64px; }
+}
+
+/* ---------- Model inputs ---------- */
+
+.inputs {
+  margin: 2.5rem 0 1rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid #2a2d34;
+}
+.inputs h3 {
+  margin: 0 0 0.75rem;
+  font-size: 1.1rem;
+  font-weight: 600;
+}
+.meta-inline {
+  font-weight: 400;
+  color: var(--muted);
+  font-size: 0.8rem;
+  letter-spacing: 0.04em;
+  margin-left: 0.4rem;
+}
+.empty.subtle {
+  background: transparent;
+  border: none;
+  padding: 0;
+  font-size: 0.875rem;
+}
+
+.cat-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-bottom: 1rem;
+}
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.3rem 0.7rem;
+  background: var(--surface);
+  border: 1px solid #2a2d34;
+  border-radius: 999px;
+  font-size: 0.8rem;
+  color: var(--text);
+  text-decoration: none;
+  transition: border-color 0.15s, background 0.15s;
+}
+.pill:hover { border-color: var(--accent); }
+.pill-count {
+  background: var(--surface-2);
+  color: var(--muted);
+  padding: 0.05rem 0.45rem;
+  border-radius: 999px;
+  font: 600 0.7rem ui-monospace, monospace;
+}
+.pill[data-cat="weather"]     { border-left: 3px solid #4d8cff; }
+.pill[data-cat="qualifying"]  { border-left: 3px solid #ffce4d; }
+.pill[data-cat="results"]     { border-left: 3px solid #f56c8a; }
+.pill[data-cat="pace"]        { border-left: 3px solid #c66cff; }
+.pill[data-cat="speed"]       { border-left: 3px solid #ff7a4d; }
+.pill[data-cat="form"]        { border-left: 3px solid #4ddca4; }
+.pill[data-cat="regulations"] { border-left: 3px solid #8a8fa3; }
+.pill[data-cat="identity"]    { border-left: 3px solid #d96bb7; }
+
+.cat {
+  background: var(--surface);
+  border: 1px solid #2a2d34;
+  border-radius: 8px;
+  margin-bottom: 0.6rem;
+  overflow: hidden;
+}
+.cat[open] { padding-bottom: 0.5rem; }
+.cat summary {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.7rem 1rem;
+  cursor: pointer;
+  user-select: none;
+  list-style: none;
+}
+.cat summary::-webkit-details-marker { display: none; }
+.cat summary::before {
+  content: "▸";
+  margin-right: 0.5rem;
+  color: var(--muted);
+  font-size: 0.75rem;
+  transition: transform 0.15s;
+  display: inline-block;
+}
+.cat[open] summary::before { transform: rotate(90deg); }
+.cat-label {
+  font-weight: 600;
+  margin-right: auto;
+}
+.cat-label[data-cat="weather"]::before     { content: "■"; color: #4d8cff; margin-right: 0.5rem; }
+.cat-label[data-cat="qualifying"]::before  { content: "■"; color: #ffce4d; margin-right: 0.5rem; }
+.cat-label[data-cat="results"]::before     { content: "■"; color: #f56c8a; margin-right: 0.5rem; }
+.cat-label[data-cat="pace"]::before        { content: "■"; color: #c66cff; margin-right: 0.5rem; }
+.cat-label[data-cat="speed"]::before       { content: "■"; color: #ff7a4d; margin-right: 0.5rem; }
+.cat-label[data-cat="form"]::before        { content: "■"; color: #4ddca4; margin-right: 0.5rem; }
+.cat-label[data-cat="regulations"]::before { content: "■"; color: #8a8fa3; margin-right: 0.5rem; }
+.cat-label[data-cat="identity"]::before    { content: "■"; color: #d96bb7; margin-right: 0.5rem; }
+.cat-count {
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.feature-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+}
+.feature-table th, .feature-table td {
+  padding: 0.4rem 1rem;
+  text-align: left;
+  border-top: 1px solid #1f2228;
+}
+.feature-table th {
+  color: var(--muted);
+  font-weight: 500;
+  text-transform: uppercase;
+  font-size: 0.7rem;
+  letter-spacing: 0.06em;
+}
+.feature-table .num {
+  text-align: right;
+  font-family: ui-monospace, monospace;
+}
+.feature-table .feature-name {
+  font-family: ui-monospace, monospace;
+  color: var(--text);
+}
+.feature-table .session {
+  color: var(--muted);
+  font-family: ui-monospace, monospace;
+  font-size: 0.8rem;
+}
+.feature-table .null-count { color: var(--muted); }

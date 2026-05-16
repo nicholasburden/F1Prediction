@@ -26,6 +26,7 @@ class TrainingConfig(BaseModel):
     batch_size: int
     gradient_accumulation: int
     driver_dropout: float
+    weather_dropout: float = 0.3
     loss: Literal["mae", "mse"]
     optimizer: Literal["adam"]
     device: Literal["cpu", "mps"]
@@ -47,6 +48,7 @@ class TrainingConfig(BaseModel):
 _SHORT_NAMES: dict[str, str] = {
     "gradient_accumulation": "ga",
     "driver_dropout": "ddrop",
+    "weather_dropout": "wdrop",
     "min_delta": "mdelta",
     "num_epochs": "ep",
     "batch_size": "bs",

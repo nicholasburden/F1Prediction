@@ -1,0 +1,106 @@
+{
+  "training": {
+    "seed": 42,
+    "lr": 0.004277765011640987,
+    "num_epochs": 6,
+    "patience": 10,
+    "min_delta": 0.0001,
+    "batch_size": 64,
+    "gradient_accumulation": 1,
+    "driver_dropout": 0.43585957131969055,
+    "weather_dropout": 0.3,
+    "loss": "mae",
+    "optimizer": "adam",
+    "device": "cpu",
+    "target_sessions": [
+      "Sprint",
+      "Q",
+      "R"
+    ],
+    "years": [
+      2018,
+      2019,
+      2020,
+      2021,
+      2022,
+      2023,
+      2024,
+      2025,
+      2026
+    ],
+    "feature_sets": [
+      "core",
+      "lookback"
+    ],
+    "train_metrics": [
+      {
+        "type": "mae",
+        "k": null
+      },
+      {
+        "type": "within_k",
+        "k": 1.0
+      },
+      {
+        "type": "within_k",
+        "k": 2.0
+      },
+      {
+        "type": "within_k",
+        "k": 3.0
+      },
+      {
+        "type": "within_k",
+        "k": 4.0
+      },
+      {
+        "type": "within_k",
+        "k": 5.0
+      },
+      {
+        "type": "within_k",
+        "k": 6.0
+      }
+    ],
+    "val_metrics": [
+      {
+        "type": "mae",
+        "k": null
+      },
+      {
+        "type": "within_k",
+        "k": 1.0
+      },
+      {
+        "type": "within_k",
+        "k": 2.0
+      },
+      {
+        "type": "within_k",
+        "k": 3.0
+      },
+      {
+        "type": "within_k",
+        "k": 4.0
+      },
+      {
+        "type": "within_k",
+        "k": 5.0
+      },
+      {
+        "type": "within_k",
+        "k": 6.0
+      }
+    ],
+    "wandb_group": "mlp_full_20260516",
+    "data_dir": "data",
+    "output_dir": "runs",
+    "full_data": true
+  },
+  "model": {
+    "type": "mlp",
+    "embedding_dim": 8,
+    "hidden_dim": 480,
+    "num_hidden_layers": 4
+  }
+}
