@@ -84,3 +84,43 @@ def run_prediction(
         "event_name": name,
         "n_drivers": len(ordered),
     }
+
+
+def run_event_predictions(
+    model_dir: Path,
+    data_dir: Path,
+    store_db: Path,
+    year: int,
+    event_id: int,
+    *,
+    force: bool = False,
+) -> list[dict[str, object]]:
+    """Predict every model-target session for the given event and store the
+    orderings. Skips sessions already in the DB unless ``force`` is set;
+    sessions that can't be predicted (missing preceding data) are logged and
+    skipped. Used so the fantasy optimiser sees R + Q + Sprint together."""
+    cfg = json.loads((model_dir / "config.json").read_text())
+    target_sessions: list[str] = cfg["training"]["target_sessions"]
+    name = event_name(year, event_id)
+    out: list[dict[str, object]] = []
+    for session in target_sessions:
+        if not force and store.latest_for_race(
+            store_db, year, event_id, session
+        ) is not None:
+            continue
+        log.info("predicting %s round %s %s", year, event_id, session)
+        try:
+            ordered, features = predict_session(
+                model_dir, year, event_id, session, data_dir, auto_download=True
+            )
+        except (ValueError, RuntimeError, FileNotFoundError) as e:
+            log.info(
+                "cannot predict %s round %s %s yet: %s",
+                year, event_id, session, e,
+            )
+            continue
+        store.insert_prediction(
+            store_db, year, event_id, name, session, ordered, features
+        )
+        out.append({"session": session, "n_drivers": len(ordered)})
+    return out

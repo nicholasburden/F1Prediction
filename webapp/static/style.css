@@ -20,6 +20,9 @@ html, body {
 }
 
 .topbar {
+  display: flex;
+  align-items: center;
+  gap: 1.5rem;
   border-bottom: 1px solid #24272d;
   padding: 1rem 1.5rem;
   background: linear-gradient(180deg, #1a1c22, #0e0f12);
@@ -29,6 +32,25 @@ html, body {
   font-size: 1.25rem;
   font-weight: 700;
   letter-spacing: 0.02em;
+}
+.topnav {
+  display: flex;
+  gap: 1rem;
+  margin-left: auto;
+}
+.topnav a {
+  color: var(--muted);
+  text-decoration: none;
+  font-size: 0.9rem;
+  letter-spacing: 0.04em;
+  padding: 0.2rem 0.1rem;
+  border-bottom: 2px solid transparent;
+  transition: color 0.15s, border-color 0.15s;
+}
+.topnav a:hover { color: var(--text); }
+.topnav a.active {
+  color: var(--text);
+  border-bottom-color: var(--accent);
 }
 .topbar h1::before {
   content: "";
@@ -369,3 +391,229 @@ html, body {
   font-size: 0.8rem;
 }
 .feature-table .null-count { color: var(--muted); }
+
+.actual { margin-top: 2.5rem; }
+.actual h3 { margin: 0 0 0.5rem 0; }
+.actual .meta-inline {
+  font-size: 0.75rem;
+  color: var(--muted);
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  margin-left: 0.4rem;
+}
+.actual .all-hit {
+  color: #8bd99f;
+  margin-left: 0.25rem;
+}
+.session-select {
+  background: transparent;
+  border: 1px solid #2a2d34;
+  border-radius: 999px;
+  color: var(--text);
+  font: 700 0.85rem ui-monospace, monospace;
+  padding: 0.18em 1.7em 0.18em 0.7em;
+  margin-left: 0.5rem;
+  vertical-align: 0.2em;
+  cursor: pointer;
+  appearance: none;
+  background-image: linear-gradient(45deg, transparent 50%, var(--muted) 50%),
+                    linear-gradient(135deg, var(--muted) 50%, transparent 50%);
+  background-position: calc(100% - 14px) 50%, calc(100% - 9px) 50%;
+  background-size: 5px 5px, 5px 5px;
+  background-repeat: no-repeat;
+}
+.session-select:hover { border-color: #3a3d44; }
+
+.podium-mini {
+  margin: 0.5rem 0 0;
+  gap: 0.6rem;
+}
+.podium-mini .step-top { margin-bottom: 0.35rem; }
+.podium-mini .avatar { width: 56px; height: 56px; font-size: 0.85rem; }
+.podium-mini .step-p1 .avatar { width: 64px; height: 64px; }
+.podium-mini .position { font-size: 0.8rem; margin-top: 0.25rem; }
+.podium-mini .abbrev { font-size: 0.9rem; }
+.podium-mini .full-name { font-size: 0.7rem; }
+.podium-mini .team { font-size: 0.7rem; }
+.podium-mini .block { height: 0; padding: 0; border: 0; background: transparent; }
+.podium-mini .step-p1 .block { height: 0; }
+.podium-mini .step-p2 .block { height: 0; }
+.podium-mini .step-p3 .block { height: 0; }
+
+.step-hit .avatar {
+  box-shadow: 0 0 0 2px #2e8a4a;
+}
+.hit-badge {
+  position: absolute;
+  bottom: -4px; right: -4px;
+  width: 20px; height: 20px;
+  border-radius: 50%;
+  background: #2e8a4a;
+  color: #fff;
+  font: 700 0.75rem ui-monospace, monospace;
+  display: flex; align-items: center; justify-content: center;
+  border: 2px solid var(--surface-2);
+}
+.podium-mini .avatar { position: relative; }
+
+.empty.subtle {
+  background: transparent;
+  border: 0;
+  padding: 0.5rem 0;
+  font-size: 0.85rem;
+}
+
+/* ---------- Fantasy optimiser ---------- */
+
+.fantasy-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 0.9rem;
+  margin-bottom: 1.5rem;
+}
+.fantasy-controls label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  font-size: 0.78rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.fantasy-controls select,
+.fantasy-controls input[type="number"] {
+  padding: 0.55rem 0.75rem;
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid #2a2d34;
+  border-radius: 6px;
+  font: inherit;
+  min-width: 11rem;
+}
+.fantasy-controls input[type="number"] { min-width: 7rem; }
+.fantasy-controls button {
+  padding: 0.55rem 1rem;
+  background: var(--accent);
+  color: #fff;
+  border: 0;
+  border-radius: 6px;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 600;
+}
+.fantasy-controls button.refresh {
+  background: var(--surface-2);
+  color: var(--text);
+  border: 1px solid #2a2d34;
+  font-weight: 400;
+}
+.fantasy-controls button.refresh:hover { border-color: var(--accent); }
+.fantasy-controls button:disabled { opacity: 0.6; cursor: progress; }
+
+.fantasy-totals {
+  display: flex;
+  gap: 1rem;
+  margin: 1rem 0 1.5rem;
+}
+.fantasy-stat {
+  flex: 1;
+  background: var(--surface);
+  border: 1px solid #2a2d34;
+  border-radius: 8px;
+  padding: 0.8rem 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+.fantasy-stat-label {
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.fantasy-stat-value {
+  font: 700 1.35rem ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.fantasy-team-row {
+  display: grid;
+  grid-template-columns: 6rem 1fr;
+  align-items: start;
+  gap: 0.9rem;
+  margin: 0.6rem 0 0.4rem;
+}
+.fantasy-team-row + .fantasy-team-row { margin-top: 0.9rem; margin-bottom: 1.6rem; }
+.fantasy-team-label {
+  padding-top: 0.55rem;
+  font: 600 0.72rem ui-monospace, monospace;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.fantasy-team-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+  gap: 0.75rem;
+}
+.session-tag-on { color: var(--text); border-color: #3a3d44; }
+.session-tag-off { opacity: 0.45; }
+.missing-note { font-style: italic; }
+@media (max-width: 640px) {
+  .fantasy-team-row { grid-template-columns: 1fr; gap: 0.35rem; }
+  .fantasy-team-label { padding-top: 0; }
+}
+.fantasy-card {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  background: var(--surface);
+  border: 1px solid #2a2d34;
+  border-left-width: 4px;
+  border-left-color: currentColor;
+  border-radius: 8px;
+  padding: 0.7rem 0.85rem;
+}
+.fantasy-card.fantasy-drs {
+  box-shadow: 0 0 0 1px var(--gold) inset;
+}
+.fantasy-card .avatar {
+  width: 44px; height: 44px;
+  font-size: 0.8rem;
+}
+.fantasy-card-body { display: flex; flex-direction: column; gap: 0.15rem; min-width: 0; flex: 1; }
+.fantasy-card .abbrev { font: 700 0.95rem ui-monospace, monospace; color: var(--text); }
+.fantasy-card .full-name { font-size: 0.75rem; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.fantasy-card .team { font-size: 0.7rem; color: var(--muted); }
+.fantasy-card-stats {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-top: 0.2rem;
+  font: 600 0.78rem ui-monospace, monospace;
+}
+.fantasy-card-stats .price { color: var(--muted); }
+.fantasy-card-stats .points { color: var(--text); }
+.fantasy-card.constructor .full-name { font-style: italic; }
+
+.drs-badge {
+  display: inline-block;
+  font: 700 0.65rem ui-monospace, monospace;
+  background: var(--gold);
+  color: #1a1300;
+  padding: 0.05em 0.4em;
+  border-radius: 4px;
+  vertical-align: 0.15em;
+  margin-left: 0.3em;
+}
+
+.fantasy-tables { margin-top: 2rem; }
+.fantasy-tables .cat { margin-bottom: 1rem; }
+.fantasy-table th,
+.fantasy-table td { padding: 0.45rem 0.85rem; }
+.fantasy-table tr.row-in-team {
+  background: rgba(225, 6, 0, 0.06);
+}
+.fantasy-table tr.row-in-team strong { color: var(--text); }
+.fantasy-table .full-name { color: var(--muted); margin-left: 0.4rem; font-weight: 400; }
+.in-team-dot { color: var(--accent); }

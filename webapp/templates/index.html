@@ -2,20 +2,18 @@
 {% block main %}
 
 <form method="get" class="race-picker" onsubmit="return false;">
-  <label for="race">Race</label>
-  <select id="race" onchange="selectRace(this)">
-    {% if target %}
-    <option value="" {% if not explicit %}selected{% endif %}>
-      Next: {{ target.year }} · {{ target.event_name }} — {{ target.session }}{% if not target_has_pred %} (no prediction yet){% endif %}
+  <label for="event">Race</label>
+  <select id="event" onchange="selectEvent(this)">
+    {% if target and not selected_event_entry %}
+    <option value="" selected>
+      Next: {{ target.year }} · {{ target.event_name }}{% if not target_has_pred %} (no prediction yet){% endif %}
     </option>
     {% endif %}
-    {% for r in history %}
-      {% if not target or r.year != target.year or r.event_id != target.event_id or r.session != target.session %}
-      <option value="{{ r.year }}|{{ r.event_id }}|{{ r.session }}"
-        {% if explicit and selected_year == r.year and selected_event == r.event_id and selected_session == r.session %}selected{% endif %}>
-        {{ r.year }} · {{ r.event_name }} — {{ r.session }}
-      </option>
-      {% endif %}
+    {% for e in events %}
+    <option value="{{ e.year }}|{{ e.event_id }}"
+      {% if selected_event_entry and selected_event_entry.year == e.year and selected_event_entry.event_id == e.event_id %}selected{% endif %}>
+      {{ e.year }} · {{ e.event_name }}
+    </option>
     {% endfor %}
   </select>
   <button type="button" class="refresh" onclick="refresh(this)">Refresh now</button>
@@ -35,7 +33,18 @@
     <p class="empty">No upcoming session in the model's target list.</p>
   {% endif %}
 {% else %}
-  <h2 class="race-title">{{ pred.event_name }} <span class="session-tag">{{ pred.session }}</span></h2>
+  <h2 class="race-title">
+    {{ pred.event_name }}
+    {% if selected_event_entry and selected_event_entry.sessions|length > 1 %}
+    <select class="session-select" onchange="selectSession(this)">
+      {% for s in selected_event_entry.sessions %}
+      <option value="{{ s }}" {% if s == pred.session %}selected{% endif %}>{{ s }}</option>
+      {% endfor %}
+    </select>
+    {% else %}
+    <span class="session-tag">{{ pred.session }}</span>
+    {% endif %}
+  </h2>
   <p class="meta">predicted at {{ pred.created_at }}</p>
 
   <section class="podium">
@@ -76,6 +85,41 @@
       </li>
       {% endfor %}
     </ol>
+  </section>
+  {% endif %}
+
+  {% if actual_podium %}
+  <section class="actual">
+    {% set hits = actual_podium | selectattr('predicted') | list | length %}
+    <h3>
+      Actual podium
+      <span class="meta-inline">
+        model identified {{ hits }} of {{ actual_podium|length }}
+        {% if hits == actual_podium|length %}<span class="all-hit">✓</span>{% endif %}
+      </span>
+    </h3>
+    <div class="podium podium-mini">
+      {% set podium_order = [2, 1, 3] %}
+      {% for r in podium_order %}
+        {% if actual_podium|length >= r %}
+          {% set d = actual_podium[r - 1] %}
+          <div class="step step-p{{ d.rank }} {% if d.predicted %}step-hit{% endif %}">
+            <div class="step-top">
+              <div class="avatar" data-team="{{ d.team }}"
+                   {% if d.image %}style="background-image: url('{{ d.image }}')"{% endif %}>
+                {% if not d.image %}<span class="initials">{{ d.abbrev }}</span>{% endif %}
+                {% if d.predicted %}<span class="hit-badge" title="model had this driver in predicted top 3">✓</span>{% endif %}
+              </div>
+              <div class="position">P{{ d.rank }}</div>
+              <div class="abbrev">{{ d.abbrev }}</div>
+              <div class="full-name">{{ d.full_name }}</div>
+              <div class="team">{{ d.team }}</div>
+            </div>
+            <div class="block"></div>
+          </div>
+        {% endif %}
+      {% endfor %}
+    </div>
   </section>
   {% endif %}
 
@@ -143,11 +187,16 @@
 {% endif %}
 
 <script>
-function selectRace(sel) {
+function selectEvent(sel) {
   const v = sel.value;
   if (!v) { window.location = '/'; return; }
-  const [y, e, s] = v.split('|');
-  window.location = `/?year=${y}&event=${e}&session=${s}`;
+  const [y, e] = v.split('|');
+  window.location = `/?year=${y}&event=${e}`;
+}
+function selectSession(sel) {
+  const url = new URL(window.location);
+  url.searchParams.set('session', sel.value);
+  window.location = url.toString();
 }
 async function refresh(btn) {
   btn.disabled = true;

@@ -1,0 +1,221 @@
+{% extends "base.html" %}
+{% block title %}Fantasy Optimiser · F1 Prediction{% endblock %}
+{% block main %}
+
+<form method="get" class="fantasy-controls" onsubmit="return submitFantasy(this);">
+  <label>Event
+    <select name="year_event" onchange="selectEventFantasy(this)">
+      {% for e in events %}
+      <option value="{{ e.year }}|{{ e.event_id }}"
+        {% if selected_year == e.year and selected_event == e.event_id %}selected{% endif %}>
+        {{ e.year }} · {{ e.event_name }}
+      </option>
+      {% endfor %}
+    </select>
+  </label>
+  <label>Budget ($M)
+    <input type="number" name="budget" value="{{ '%.1f'|format(budget) }}" step="0.1" min="0">
+  </label>
+  <label>Restriction
+    <select name="restriction">
+      {% for key, label in restriction_options %}
+      <option value="{{ key }}" {% if key == restriction %}selected{% endif %}>{{ label }}</option>
+      {% endfor %}
+    </select>
+  </label>
+  <button type="submit">Optimise</button>
+  <button type="button" class="refresh" onclick="refreshPrices(this)">Refresh prices</button>
+</form>
+
+{% if feed_error %}
+<p class="empty">Could not fetch live fantasy prices: {{ feed_error }}</p>
+{% endif %}
+
+{% if not feed %}
+{% elif not selected_event %}
+  <p class="empty">No event resolved.</p>
+{% elif not driver_rows or driver_rows[0].points == 0 %}
+  <p class="empty">No predictions stored for {{ selected_event_name }} yet. The optimiser will populate once a prediction exists for at least one session (R, Q, or Sprint).</p>
+{% else %}
+
+<section class="fantasy-summary">
+  <h2 class="race-title">{{ selected_event_name }}</h2>
+  <p class="meta">
+    optimising sum across target sessions:
+    {% for s in all_target_sessions %}
+      <span class="session-tag {% if s in sessions_used %}session-tag-on{% else %}session-tag-off{% endif %}">{{ s }}</span>
+    {% endfor %}
+    · DRS boost = {{ drs_multiplier }}x · {{ n_drivers }} drivers + {{ n_constructors }} constructors
+  </p>
+  {% if sessions_missing %}
+  <p class="meta missing-note">
+    No prediction yet for {{ sessions_missing|join(', ') }} — kicked off in the
+    background, refresh the page in a moment to include those points.
+  </p>
+  {% endif %}
+
+  {% if pick %}
+  <div class="fantasy-totals">
+    <div class="fantasy-stat">
+      <span class="fantasy-stat-label">Expected points</span>
+      <span class="fantasy-stat-value">{{ '%.1f'|format(pick.total_points) }}</span>
+    </div>
+    <div class="fantasy-stat">
+      <span class="fantasy-stat-label">Cost</span>
+      <span class="fantasy-stat-value">${{ '%.1f'|format(pick.total_cost) }}M</span>
+    </div>
+    <div class="fantasy-stat">
+      <span class="fantasy-stat-label">Budget left</span>
+      <span class="fantasy-stat-value">${{ '%.1f'|format(budget - pick.total_cost) }}M</span>
+    </div>
+  </div>
+
+  <h3>Optimal team</h3>
+  <div class="fantasy-team-row">
+    <div class="fantasy-team-label">Drivers</div>
+    <div class="fantasy-team-cards">
+      {% for d in driver_rows if d.in_team %}
+      <div class="fantasy-card{% if d.is_drs %} fantasy-drs{% endif %}" data-team="{{ d.team }}">
+        <div class="avatar" data-team="{{ d.team }}">
+          <span class="initials">{{ d.abbrev }}</span>
+        </div>
+        <div class="fantasy-card-body">
+          <div class="abbrev">{{ d.abbrev }}{% if d.is_drs %} <span class="drs-badge" title="DRS Boost ({{ drs_multiplier }}x)">DRS</span>{% endif %}</div>
+          <div class="full-name">{{ d.full_name }}</div>
+          <div class="team">{{ d.team }}</div>
+          <div class="fantasy-card-stats">
+            <span class="price">${{ '%.1f'|format(d.price) }}M</span>
+            <span class="points">{{ '%.1f'|format(d.points * (drs_multiplier if d.is_drs else 1)) }} pts</span>
+          </div>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+  <div class="fantasy-team-row">
+    <div class="fantasy-team-label">Constructors</div>
+    <div class="fantasy-team-cards">
+      {% for c in constructor_rows if c.in_team %}
+      <div class="fantasy-card constructor" data-team="{{ c.name }}">
+        <div class="avatar" data-team="{{ c.name }}">
+          <span class="initials">{{ c.name[:3]|upper }}</span>
+        </div>
+        <div class="fantasy-card-body">
+          <div class="abbrev">{{ c.name }}</div>
+          <div class="full-name">Constructor</div>
+          <div class="fantasy-card-stats">
+            <span class="price">${{ '%.1f'|format(c.price) }}M</span>
+            <span class="points">{{ '%.1f'|format(c.points) }} pts</span>
+          </div>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+  {% else %}
+  <p class="empty">No team fits the ${{ '%.1f'|format(budget) }}M budget — try increasing it.</p>
+  {% endif %}
+</section>
+
+<section class="fantasy-tables">
+  <details class="cat" open>
+    <summary><span class="cat-label">Drivers</span><span class="cat-count">{{ driver_rows|length }} available · prices live from fantasy.formula1.com</span></summary>
+    <table class="feature-table fantasy-table">
+      <thead>
+        <tr>
+          <th></th>
+          <th>Driver</th>
+          <th>Team</th>
+          <th class="num">Price</th>
+          <th class="num">Exp. pts</th>
+          <th class="num">Pts / $M</th>
+          {% for s in sessions_used %}<th class="num">{{ s }}</th>{% endfor %}
+        </tr>
+      </thead>
+      <tbody>
+        {% for d in driver_rows %}
+        <tr class="{% if d.in_team %}row-in-team{% endif %}">
+          <td>
+            {% if d.is_drs %}<span class="drs-badge" title="DRS Boost">DRS</span>
+            {% elif d.in_team %}<span class="in-team-dot" title="In optimal team">●</span>
+            {% endif %}
+          </td>
+          <td><span class="dot" data-team="{{ d.team }}"></span> <strong>{{ d.abbrev }}</strong> <span class="full-name">{{ d.full_name }}</span></td>
+          <td class="team">{{ d.team }}</td>
+          <td class="num">${{ '%.1f'|format(d.price) }}M</td>
+          <td class="num">{{ '%.2f'|format(d.points) }}</td>
+          <td class="num">{{ '%.2f'|format(d.value) }}</td>
+          {% for s in sessions_used %}
+          <td class="num">{% if d.breakdown[s] is defined %}{{ '%.2f'|format(d.breakdown[s]) }}{% else %}—{% endif %}</td>
+          {% endfor %}
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </details>
+
+  <details class="cat" open>
+    <summary><span class="cat-label">Constructors</span><span class="cat-count">{{ constructor_rows|length }} available</span></summary>
+    <table class="feature-table fantasy-table">
+      <thead>
+        <tr>
+          <th></th>
+          <th>Constructor</th>
+          <th class="num">Price</th>
+          <th class="num">Exp. pts</th>
+          <th class="num">Pts / $M</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for c in constructor_rows %}
+        <tr class="{% if c.in_team %}row-in-team{% endif %}">
+          <td>{% if c.in_team %}<span class="in-team-dot" title="In optimal team">●</span>{% endif %}</td>
+          <td><span class="dot" data-team="{{ c.name }}"></span> <strong>{{ c.name }}</strong></td>
+          <td class="num">${{ '%.1f'|format(c.price) }}M</td>
+          <td class="num">{{ '%.2f'|format(c.points) }}</td>
+          <td class="num">{{ '%.2f'|format(c.value) }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </details>
+</section>
+
+{% endif %}
+
+<script>
+function selectEventFantasy(sel) {
+  const v = sel.value;
+  if (!v) return;
+  const [y, e] = v.split('|');
+  const url = new URL(window.location);
+  url.searchParams.set('year', y);
+  url.searchParams.set('event', e);
+  window.location = url.toString();
+}
+function submitFantasy(form) {
+  const fd = new FormData(form);
+  const ye = fd.get('year_event');
+  fd.delete('year_event');
+  if (ye) {
+    const [y, e] = ye.split('|');
+    fd.set('year', y);
+    fd.set('event', e);
+  }
+  window.location = '/fantasy?' + new URLSearchParams(fd).toString();
+  return false;
+}
+async function refreshPrices(btn) {
+  btn.disabled = true;
+  btn.textContent = 'Refreshing…';
+  try {
+    await fetch('/api/fantasy/refresh', { method: 'POST' });
+    setTimeout(() => window.location.reload(), 500);
+  } catch (e) {
+    btn.disabled = false;
+    btn.textContent = 'Refresh prices';
+  }
+}
+</script>
+
+{% endblock %}

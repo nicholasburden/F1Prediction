@@ -103,6 +103,46 @@ def _base_to_category(feature_set_names: tuple[str, ...]) -> dict[str, str]:
     return out
 
 
+def _present_sessions(
+    features_by_driver: dict[str, dict[str, float | int | None]],
+    feature_set_names: tuple[str, ...],
+) -> set[str]:
+    """Sessions whose columns aren't entirely at their registry fill_null
+    defaults across every driver. A session that doesn't exist for the event
+    (e.g. FP2 on a sprint weekend) lands every column at the schema-fill
+    sentinel; one that does exist has at least one non-default value (real
+    laps, real or forecast weather, etc.)."""
+    fill_map = _registry_for(feature_set_names).null_fill_map
+    sample = next(iter(features_by_driver.values()))
+    columns = list(sample.keys())
+    by_session: dict[str, list[str]] = {}
+    for col in columns:
+        base, sess = split_column(col)
+        if sess is None:
+            continue
+        by_session.setdefault(sess, []).append(col)
+
+    present: set[str] = set()
+    for sess, cols in by_session.items():
+        for col in cols:
+            base, _ = split_column(col)
+            default = float(fill_map.get(base, 0.0))
+            for driver_features in features_by_driver.values():
+                v = driver_features.get(col)
+                if v is None:
+                    continue
+                try:
+                    if float(v) != default:
+                        present.add(sess)
+                        break
+                except (TypeError, ValueError):
+                    present.add(sess)
+                    break
+            if sess in present:
+                break
+    return present
+
+
 def categorise(
     features_by_driver: dict[str, dict[str, float | int | None]],
     feature_set_names: list[str],
@@ -112,6 +152,7 @@ def categorise(
     if not features_by_driver:
         return []
     cat_lookup = _base_to_category(tuple(feature_set_names))
+    present = _present_sessions(features_by_driver, tuple(feature_set_names))
     sample = next(iter(features_by_driver.values()))
     columns = list(sample.keys())
 
@@ -119,6 +160,8 @@ def categorise(
     grouped: dict[str, dict[str, list[tuple[str | None, list[float | int | None]]]]] = {}
     for col in columns:
         base, sess = split_column(col)
+        if sess is not None and sess not in present:
+            continue
         category = cat_lookup.get(base, "other")
         values: list[float | int | None] = [
             features_by_driver[d].get(col) for d in features_by_driver
