@@ -4,7 +4,12 @@ services:
     image: f1prediction-webapp:latest
     container_name: f1prediction-webapp
     ports:
+      # Direct host-port access for debugging; Caddy reverse-proxies on the
+      # caddy_shared network for the friendly f1.servy.lan URL.
       - "8000:8000"
+    networks:
+      - default
+      - caddy_shared
     environment:
       # Disable wandb in deployed containers — training calls should_log=True
       # which tries to initialise wandb, and headless boxes don't have an API
@@ -25,3 +30,9 @@ services:
       - ./runs:/app/runs
       - ./logs:/app/logs
     restart: unless-stopped
+
+networks:
+  # Shared with the Caddy stack at ~/caddy/compose.yaml on the host, which
+  # reverse-proxies http://f1.servy.lan to this service by container name.
+  caddy_shared:
+    external: true
