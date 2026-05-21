@@ -5,6 +5,12 @@ services:
     container_name: f1prediction-webapp
     ports:
       - "8000:8000"
+    environment:
+      # Disable wandb in deployed containers — training calls should_log=True
+      # which tries to initialise wandb, and headless boxes don't have an API
+      # key configured. Override to `offline` if you want local-only runs you
+      # can `wandb sync` later, or unset entirely on a box with creds.
+      WANDB_MODE: disabled
     # State that must survive container rebuilds is bind-mounted from the
     # repo. Anything the app writes to (data, cache, models, predictions DB)
     # lands on the host and is inspectable from outside the container.
