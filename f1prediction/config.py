@@ -43,6 +43,12 @@ class TrainingConfig(BaseModel):
     data_dir: Path
     output_dir: Path
     full_data: bool = False
+    event_cutoff: tuple[int, int] | None = None
+    """Strict-before cutoff for training data: (year, round_num). Keeps only
+    rows where (Year, EventId) < (year, round_num) lexicographically — i.e.
+    everything from earlier years, and rounds 1..(round_num-1) of the cutoff
+    year. Used to build per-event 'before this event' models for honest
+    backtests."""
 
 
 _SHORT_NAMES: dict[str, str] = {

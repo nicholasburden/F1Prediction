@@ -192,3 +192,17 @@ def build_features(
         )
 
     return result, vocab_len_dict, out_mappings
+
+
+def apply_event_cutoff(
+    df: pl.DataFrame, cutoff: tuple[int, int] | None
+) -> pl.DataFrame:
+    """Drop rows at or after the cutoff event (lexicographic ``(Year, EventId)``
+    compare). Returns the input unchanged when ``cutoff`` is None."""
+    if cutoff is None:
+        return df
+    year, round_num = cutoff
+    return df.filter(
+        (pl.col("Year") < year)
+        | ((pl.col("Year") == year) & (pl.col("EventId") < round_num))
+    )

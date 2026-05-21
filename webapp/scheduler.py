@@ -1,12 +1,13 @@
-"""APScheduler wiring for the recurring prediction job."""
+"""APScheduler wiring for the recurring prediction and data-sync jobs."""
 from __future__ import annotations
 
 import logging
+from datetime import datetime
 from pathlib import Path
 
 from apscheduler.schedulers.background import BackgroundScheduler
 
-from webapp.runner import run_prediction
+from webapp.runner import download_and_maybe_retrain, run_prediction
 
 log = logging.getLogger(__name__)
 _scheduler: BackgroundScheduler | None = None
@@ -15,8 +16,10 @@ _scheduler: BackgroundScheduler | None = None
 def start(
     model_dir: Path,
     data_dir: Path,
+    cache_dir: Path,
     store_db: Path,
     interval_minutes: int = 60,
+    download_interval_hours: int = 24,
 ) -> None:
     global _scheduler
     if _scheduler is not None:
@@ -30,8 +33,20 @@ def start(
         coalesce=True,
         max_instances=1,
     )
+    _scheduler.add_job(
+        lambda: download_and_maybe_retrain(model_dir, data_dir, cache_dir),
+        trigger="interval",
+        hours=download_interval_hours,
+        id="daily_data_download",
+        coalesce=True,
+        max_instances=1,
+        next_run_time=datetime.now(),
+    )
     _scheduler.start()
-    log.info("scheduler started; interval=%s min", interval_minutes)
+    log.info(
+        "scheduler started; predict interval=%s min, download interval=%s h",
+        interval_minutes, download_interval_hours,
+    )
 
 
 def stop() -> None:

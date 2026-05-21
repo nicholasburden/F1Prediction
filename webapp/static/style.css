@@ -38,6 +38,7 @@ html, body {
   gap: 1rem;
   margin-left: auto;
 }
+
 .topnav a {
   color: var(--muted);
   text-decoration: none;
@@ -185,7 +186,11 @@ html, body {
   letter-spacing: 0.04em;
 }
 .step-p1 .avatar { width: 100px; height: 100px; }
-.avatar .initials { mix-blend-mode: normal; }
+.avatar .initials {
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: #fff;
+}
 
 /* ---------- Rest of the field ---------- */
 
@@ -232,7 +237,7 @@ html, body {
 [data-team="Cadillac"]        { color: #8C8C8C; }
 [data-team="Unknown"]         { color: #555; }
 
-.avatar[data-team="Red Bull Racing"] { background-color: #1E5BC6; }
+.avatar[data-team="Red Bull Racing"] { background-color: #0B2A5E; }
 .avatar[data-team="Mercedes"]        { background-color: #00322E; }
 .avatar[data-team="Ferrari"]         { background-color: #8B0000; }
 .avatar[data-team="McLaren"]         { background-color: #B85A00; }

@@ -21,6 +21,7 @@ class PredictionRow(TypedDict):
     session: str
     drivers: list[tuple[str, float]]
     features: FeaturesByDriver
+    model_fit_at: str | None
 
 
 class RaceSummary(TypedDict):
@@ -58,15 +59,17 @@ def init_db(db_path: Path) -> None:
     db_path.parent.mkdir(parents=True, exist_ok=True)
     with _connect(db_path) as conn:
         conn.executescript(_SCHEMA)
-        # Migration: add features_json to pre-existing rows. SQLite raises
-        # OperationalError if the column already exists.
-        try:
-            conn.execute(
-                "ALTER TABLE predictions "
-                "ADD COLUMN features_json TEXT NOT NULL DEFAULT '{}'"
-            )
-        except sqlite3.OperationalError:
-            pass
+        # Migrations for pre-existing rows. SQLite raises OperationalError
+        # if a column already exists, which is fine.
+        for stmt in (
+            "ALTER TABLE predictions "
+            "ADD COLUMN features_json TEXT NOT NULL DEFAULT '{}'",
+            "ALTER TABLE predictions ADD COLUMN model_fit_at TEXT",
+        ):
+            try:
+                conn.execute(stmt)
+            except sqlite3.OperationalError:
+                pass
 
 
 def insert_prediction(
@@ -77,6 +80,7 @@ def insert_prediction(
     session: str,
     drivers: list[tuple[str, float]],
     features: FeaturesByDriver,
+    model_fit_at: str | None,
 ) -> int:
     payload = json.dumps([{"driver": d, "pred": p} for d, p in drivers])
     features_payload = json.dumps(features)
@@ -84,9 +88,11 @@ def insert_prediction(
     with _connect(db_path) as conn:
         cur = conn.execute(
             "INSERT INTO predictions "
-            "(created_at, year, event_id, event_name, session, payload_json, features_json) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (now, year, event_id, event_name, session, payload, features_payload),
+            "(created_at, year, event_id, event_name, session, payload_json, "
+            " features_json, model_fit_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (now, year, event_id, event_name, session, payload, features_payload,
+             model_fit_at),
         )
         return cur.lastrowid or 0
 
@@ -95,7 +101,9 @@ def _row_to_prediction(row: sqlite3.Row) -> PredictionRow:
     drivers = [
         (d["driver"], float(d["pred"])) for d in json.loads(row["payload_json"])
     ]
-    features_raw = row["features_json"] if "features_json" in row.keys() else "{}"
+    keys = row.keys()
+    features_raw = row["features_json"] if "features_json" in keys else "{}"
+    fit_at = row["model_fit_at"] if "model_fit_at" in keys else None
     return PredictionRow(
         id=row["id"],
         created_at=row["created_at"],
@@ -105,6 +113,7 @@ def _row_to_prediction(row: sqlite3.Row) -> PredictionRow:
         session=row["session"],
         drivers=drivers,
         features=json.loads(features_raw or "{}"),
+        model_fit_at=fit_at,
     )
 
 

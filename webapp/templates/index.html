@@ -4,16 +4,19 @@
 <form method="get" class="race-picker" onsubmit="return false;">
   <label for="event">Race</label>
   <select id="event" onchange="selectEvent(this)">
-    {% if target and not selected_event_entry %}
-    <option value="" selected>
+    {% if target %}
+    <option value=""
+      {% if not selected_event_entry or (selected_event_entry.year == target.year and selected_event_entry.event_id == target.event_id) %}selected{% endif %}>
       Next: {{ target.year }} · {{ target.event_name }}{% if not target_has_pred %} (no prediction yet){% endif %}
     </option>
     {% endif %}
     {% for e in events %}
+    {% if not target or not (e.year == target.year and e.event_id == target.event_id) %}
     <option value="{{ e.year }}|{{ e.event_id }}"
       {% if selected_event_entry and selected_event_entry.year == e.year and selected_event_entry.event_id == e.event_id %}selected{% endif %}>
       {{ e.year }} · {{ e.event_name }}
     </option>
+    {% endif %}
     {% endfor %}
   </select>
   <button type="button" class="refresh" onclick="refresh(this)">Refresh now</button>
@@ -45,7 +48,15 @@
     <span class="session-tag">{{ pred.session }}</span>
     {% endif %}
   </h2>
-  <p class="meta">predicted at {{ pred.created_at }}</p>
+  <p class="meta">
+    predicted at {{ pred.created_at[:19] }}
+    · model fit
+    {% if pred.model_fit_at %}
+      <span title="{{ pred.model_fit_at }}">{{ pred.model_fit_at[:10] }}</span>
+    {% else %}
+      unknown <span class="meta-warn" title="This prediction predates per-row fit-date tracking.">⚠</span>
+    {% endif %}
+  </p>
 
   <section class="podium">
     {% set podium_order = [2, 1, 3] %}
@@ -54,9 +65,8 @@
         {% set d = items[r - 1] %}
         <div class="step step-p{{ d.rank }}">
           <div class="step-top">
-            <div class="avatar" data-team="{{ d.team }}"
-                 {% if d.image %}style="background-image: url('{{ d.image }}')"{% endif %}>
-              {% if not d.image %}<span class="initials">{{ d.abbrev }}</span>{% endif %}
+            <div class="avatar" data-team="{{ d.team }}">
+              <span class="initials">{{ d.abbrev }}</span>
             </div>
             <div class="position">P{{ d.rank }}</div>
             <div class="abbrev">{{ d.abbrev }}</div>
@@ -105,9 +115,8 @@
           {% set d = actual_podium[r - 1] %}
           <div class="step step-p{{ d.rank }} {% if d.predicted %}step-hit{% endif %}">
             <div class="step-top">
-              <div class="avatar" data-team="{{ d.team }}"
-                   {% if d.image %}style="background-image: url('{{ d.image }}')"{% endif %}>
-                {% if not d.image %}<span class="initials">{{ d.abbrev }}</span>{% endif %}
+              <div class="avatar" data-team="{{ d.team }}">
+                <span class="initials">{{ d.abbrev }}</span>
                 {% if d.predicted %}<span class="hit-badge" title="model had this driver in predicted top 3">✓</span>{% endif %}
               </div>
               <div class="position">P{{ d.rank }}</div>

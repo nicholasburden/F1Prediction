@@ -24,7 +24,7 @@ _FEATURE_SETS: dict[str, FeatureRegistry] = {
     "core": CORE_FEATURES,
     "lookback": LOOKBACK_FEATURES,
 }
-from f1prediction.data.pipeline import build_features
+from f1prediction.data.pipeline import apply_event_cutoff, build_features
 from f1prediction.models.mlp import MLPModel
 from f1prediction.training.metrics import Metric
 
@@ -250,6 +250,7 @@ def train_model(
     all_data, vocab_dict, vocab_mappings = build_features(
         cfg.data_dir, cfg.years, features
     )
+    all_data = apply_event_cutoff(all_data, cfg.event_cutoff)
     vocab_lens = [vocab_dict[col] for col in features.embedding_features]
 
     training_feature_dropout = {"driver_id": cfg.driver_dropout}

@@ -5,6 +5,7 @@ wandb/
 prepared/
 outputs/
 logs/
+webapp_models/
 __pycache__/
 *.pyc
 .venv/

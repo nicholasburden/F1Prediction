@@ -2,7 +2,7 @@
   "training": {
     "seed": 42,
     "lr": 0.004277765011640987,
-    "num_epochs": 6,
+    "num_epochs": 3,
     "patience": 10,
     "min_delta": 0.0001,
     "batch_size": 64,
@@ -92,7 +92,7 @@
         "k": 6.0
       }
     ],
-    "wandb_group": "mlp_full_20260516",
+    "wandb_group": "mlp_full_20260519",
     "data_dir": "data",
     "output_dir": "runs",
     "full_data": true

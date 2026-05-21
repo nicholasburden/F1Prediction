@@ -126,21 +126,44 @@ def _select_available_cols(df: pl.DataFrame, wanted: list[str]) -> pl.DataFrame:
 # ---------------------------------------------------------------------------
 
 
-def _save_results(session, out_dir: Path) -> None:
-    """Save session results to ``results.parquet``."""
+def _is_placeholder_results(df: pl.DataFrame) -> bool:
+    """fastf1 returns sequential-position dummy data for sessions that
+    haven't run yet (Position 1..N in entry-list order, GridPosition null,
+    Q1/Q2/Q3 null). A real session has at least one non-null GridPosition
+    (race/sprint, post-quali grid) or at least one non-null Q1 time
+    (qualifying). Same heuristic as ``webapp.backtest._has_real_results``."""
+    if "Position" not in df.columns or df["Position"].drop_nulls().len() == 0:
+        return True
+    has_grid = (
+        "GridPosition" in df.columns
+        and df["GridPosition"].drop_nulls().len() > 0
+    )
+    has_qual = "Q1" in df.columns and df["Q1"].drop_nulls().len() > 0
+    return not (has_grid or has_qual)
+
+
+def _save_results(session, out_dir: Path) -> bool:
+    """Save session results to ``results.parquet``. Returns True iff the file
+    was written; returns False without writing for placeholder data so the
+    caller can skip the matching laps/weather saves and the session dir is
+    left empty (the next download attempt will retry)."""
     try:
         results = session.results
         if results is None or results.empty:
-            return
-        # Convert pandas → polars.
+            return False
         df = pl.from_pandas(results.reset_index(drop=True))
         df = _select_available_cols(df, _RESULT_COLUMNS)
         df = _convert_timedelta_cols(df, _TIMEDELTA_RESULT_COLS)
+        if _is_placeholder_results(df):
+            logger.info("    Skipping placeholder results (session not yet run)")
+            return False
         out_dir.mkdir(parents=True, exist_ok=True)
         df.write_parquet(out_dir / "results.parquet")
         logger.debug("    Saved results.parquet (%d rows)", len(df))
+        return True
     except Exception as exc:
         logger.warning("    Could not save results: %s", exc)
+        return False
 
 
 def _save_laps(session, out_dir: Path) -> None:
@@ -280,7 +303,8 @@ def download_history(
                     )
                     continue
 
-                _save_results(session, out_dir)
+                if not _save_results(session, out_dir):
+                    continue
                 _save_laps(session, out_dir)
                 _save_weather(session, out_dir)
                 logger.info("    Done: %s", abbrev)

@@ -1,0 +1,21 @@
+services:
+  webapp:
+    build: .
+    image: f1prediction-webapp:latest
+    container_name: f1prediction-webapp
+    ports:
+      - "8000:8000"
+    # State that must survive container rebuilds is bind-mounted from the
+    # repo. Anything the app writes to (data, cache, models, predictions DB)
+    # lands on the host and is inspectable from outside the container.
+    volumes:
+      - ./data:/app/data
+      - ./cache:/app/cache
+      - ./webapp_config:/app/webapp_config
+      - ./webapp_models:/app/webapp_models
+      - ./webapp.db:/app/webapp.db
+      # Training artefacts — optional; comment out if you don't run sweeps
+      # or refits inside the container.
+      - ./runs:/app/runs
+      - ./logs:/app/logs
+    restart: unless-stopped

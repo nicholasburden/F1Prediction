@@ -13,7 +13,7 @@ import polars as pl
 from f1prediction.config import Config
 from f1prediction.data.dataloader import get_kfold_dataloaders
 from f1prediction.data.features import CORE_FEATURES, LOOKBACK_FEATURES
-from f1prediction.data.pipeline import build_features
+from f1prediction.data.pipeline import apply_event_cutoff, build_features
 from f1prediction.data.registry import FeatureRegistry
 from f1prediction.training.train import train_with_dataloaders
 
@@ -88,6 +88,7 @@ def kfold_cv(config: Config, k: int = 5, should_log: bool = True) -> CVResult:
     all_data, vocab_dict, _ = build_features(
         config.training.data_dir, config.training.years, features
     )
+    all_data = apply_event_cutoff(all_data, config.training.event_cutoff)
 
     losses: list[float] = []
     epochs: list[int] = []

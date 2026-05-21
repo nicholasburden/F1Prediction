@@ -1,0 +1,42 @@
+# Build-time exclusions. Mirrors .gitignore plus a few extras so the build
+# context stays small and host state doesn't end up baked into the image.
+
+# Version control
+.git
+.gitignore
+
+# Python build / cache
+.venv
+__pycache__
+**/__pycache__
+*.pyc
+.mypy_cache
+.pytest_cache
+.ruff_cache
+
+# Editor / OS
+.DS_Store
+.claude
+
+# Runtime state — mounted as volumes instead
+data
+cache
+runs
+outputs
+wandb
+logs
+webapp_config
+webapp_models
+prepared
+webapp.db
+sweep.db
+*.log
+
+# Pinned at the Dockerfile level
+.python-version
+
+# Docker itself
+Dockerfile
+.dockerignore
+docker-compose.yml
+docker-compose.yaml

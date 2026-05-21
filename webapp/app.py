@@ -16,7 +16,16 @@ from fastapi.templating import Jinja2Templates
 from webapp import fantasy, store
 from webapp.backtest import actual_top, enumerate_events, run_backtest
 from webapp.feature_meta import categorise
-from webapp.runner import next_target, run_event_predictions, run_prediction
+from webapp.runner import (
+    get_progress,
+    is_full_data,
+    kick_off_retrain,
+    model_fit_at,
+    next_target,
+    retrain_state_snapshot,
+    run_event_predictions,
+    run_prediction,
+)
 from webapp.scheduler import start as scheduler_start, stop as scheduler_stop
 
 SEASON_YEAR = 2026
@@ -26,7 +35,9 @@ log = logging.getLogger("webapp")
 
 ROOT = Path(__file__).resolve().parents[1]
 MODEL_DIR = ROOT / "webapp_config"
+MODELS_DIR = ROOT / "webapp_models"
 DATA_DIR = ROOT / "data"
+CACHE_DIR = ROOT / "cache"
 DB_PATH = ROOT / "webapp.db"
 WEBAPP_DIR = Path(__file__).resolve().parent
 STATIC_DIR = WEBAPP_DIR / "static"
@@ -47,25 +58,33 @@ def _load_drivers() -> dict[str, DriverInfo]:
 def _predict_all_sessions_of_next_event(
     model_dir: Path, data_dir: Path, db_path: Path
 ) -> None:
-    """Background task: fill in any missing target-session predictions for the
-    upcoming event so the fantasy optimiser sees R + Q + Sprint."""
+    """Background task at startup: regenerate every target-session prediction
+    for the next-upcoming event so the home page reflects the *current*
+    deployed model (including its fit-date label) rather than whatever was
+    cached from a previous run with an older model."""
     tgt = next_target(model_dir)
     if tgt is None:
         return
-    run_event_predictions(model_dir, data_dir, db_path, tgt["year"], tgt["event_id"])
+    run_event_predictions(
+        model_dir, data_dir, db_path, tgt["year"], tgt["event_id"], force=True,
+    )
 
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     store.init_db(DB_PATH)
-    scheduler_start(MODEL_DIR, DATA_DIR, DB_PATH)
+    scheduler_start(MODEL_DIR, DATA_DIR, CACHE_DIR, DB_PATH)
     loop = asyncio.get_running_loop()
     loop.run_in_executor(None, run_prediction, MODEL_DIR, DATA_DIR, DB_PATH)
     loop.run_in_executor(
         None, _predict_all_sessions_of_next_event, MODEL_DIR, DATA_DIR, DB_PATH
     )
     loop.run_in_executor(
-        None, run_backtest, MODEL_DIR, DATA_DIR, DB_PATH, SEASON_YEAR
+        None,
+        lambda: run_backtest(
+            MODEL_DIR, DATA_DIR, DB_PATH, SEASON_YEAR,
+            models_dir=MODELS_DIR, force=True,
+        ),
     )
     log.info(
         "startup complete; one-shot prediction + %d-season backtest running "
@@ -80,6 +99,9 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
 app = FastAPI(lifespan=lifespan, title="F1 Prediction")
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 templates = Jinja2Templates(directory=TEMPLATES_DIR)
+templates.env.globals["asset_version"] = str(
+    int((STATIC_DIR / "style.css").stat().st_mtime)
+)
 
 
 def _driver_info(abbrev: str, drivers: dict[str, DriverInfo]) -> dict[str, object]:
@@ -143,7 +165,11 @@ def _events_with_sessions(
         })
         if target["session"] not in entry["sessions"]:  # type: ignore[operator]
             entry["sessions"].append(target["session"])  # type: ignore[union-attr]
-    return sorted(seen.values(), key=lambda e: (e["year"], e["event_id"]))  # type: ignore[arg-type,return-value]
+    return sorted(  # type: ignore[return-value]
+        seen.values(),
+        key=lambda e: (e["year"], e["event_id"]),  # type: ignore[arg-type]
+        reverse=True,
+    )
 
 
 def _actual_podium(
@@ -234,6 +260,10 @@ def index(
             "selected_event_entry": selected_event_entry,
             "events": events,
             "actual_podium": actual_podium,
+            "model_full_data": is_full_data(MODEL_DIR),
+            "model_fit_at": model_fit_at(MODEL_DIR, DATA_DIR),
+            "retrain_running": retrain_state_snapshot()["running"],
+            "latest_progress": (get_progress()[-1]["message"] if get_progress() else None),
         },
     )
 
@@ -380,6 +410,10 @@ def fantasy_page(
             "drs_multiplier": fantasy.DRS_MULTIPLIER,
             "n_drivers": fantasy.TEAM_DRIVERS,
             "n_constructors": fantasy.TEAM_CONSTRUCTORS,
+            "model_full_data": is_full_data(MODEL_DIR),
+            "model_fit_at": model_fit_at(MODEL_DIR, DATA_DIR),
+            "retrain_running": retrain_state_snapshot()["running"],
+            "latest_progress": (get_progress()[-1]["message"] if get_progress() else None),
         },
     )
 
@@ -412,3 +446,30 @@ def api_history() -> JSONResponse:
 def api_refresh(background: BackgroundTasks) -> dict[str, str]:
     background.add_task(run_prediction, MODEL_DIR, DATA_DIR, DB_PATH)
     return {"status": "scheduled"}
+
+
+@app.post("/api/retrain")
+async def api_retrain() -> JSONResponse:
+    """On-demand refit: dispatched to the executor so the request returns
+    immediately. The runner's lock protects against double-starts; if a
+    retrain (scheduler- or user-triggered) is already in flight, returns
+    409. The pill polls ``/api/retrain/status`` to track completion."""
+    snap = retrain_state_snapshot()
+    if snap["running"]:
+        return JSONResponse(
+            {"status": "already_running", **dict(snap)}, status_code=409,
+        )
+    asyncio.get_running_loop().run_in_executor(None, kick_off_retrain, MODEL_DIR)
+    return JSONResponse({"status": "scheduled"}, status_code=202)
+
+
+@app.get("/api/retrain/status")
+def api_retrain_status() -> JSONResponse:
+    """Polled by the topbar fit-date pill while a retrain is in flight, so
+    the UI can refresh once it lands. Also returns the rolling progress log
+    so the pill can show what phase the refit is in."""
+    state: dict[str, object] = dict(retrain_state_snapshot())
+    state["model_full_data"] = is_full_data(MODEL_DIR)
+    state["model_fit_at"] = model_fit_at(MODEL_DIR, DATA_DIR)
+    state["progress"] = get_progress()
+    return JSONResponse(state)
