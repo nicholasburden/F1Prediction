@@ -4,33 +4,39 @@
 <form method="get" class="race-picker" onsubmit="return false;">
   <label for="event">Race</label>
   <select id="event" onchange="selectEvent(this)">
-    {% if target %}
-    <option value=""
-      {% if not selected_event_entry or (selected_event_entry.year == target.year and selected_event_entry.event_id == target.event_id) %}selected{% endif %}>
-      Next: {{ target.year }} · {{ target.event_name }}{% if not target_has_pred %} (no prediction yet){% endif %}
-    </option>
+    {% if upcoming %}
+    <optgroup label="Upcoming">
+      {% for e in upcoming %}
+      <option value="{{ e.year }}|{{ e.event_id }}"
+        {% if (selected and selected_year == e.year and selected_event == e.event_id) or (not selected and loop.first) %}selected{% endif %}>
+        {% if loop.first %}Next: {% endif %}{{ e.year }} · {{ e.event_name }}{% if loop.first and not target_has_pred %} (no prediction yet){% endif %}
+      </option>
+      {% endfor %}
+    </optgroup>
     {% endif %}
-    {% for e in events %}
-    {% if not target or not (e.year == target.year and e.event_id == target.event_id) %}
-    <option value="{{ e.year }}|{{ e.event_id }}"
-      {% if selected_event_entry and selected_event_entry.year == e.year and selected_event_entry.event_id == e.event_id %}selected{% endif %}>
-      {{ e.year }} · {{ e.event_name }}
-    </option>
+    {% if events %}
+    <optgroup label="Predicted">
+      {% for e in events %}
+      <option value="{{ e.year }}|{{ e.event_id }}"
+        {% if selected and selected_year == e.year and selected_event == e.event_id %}selected{% endif %}>
+        {{ e.year }} · {{ e.event_name }}
+      </option>
+      {% endfor %}
+    </optgroup>
     {% endif %}
-    {% endfor %}
   </select>
   <button type="button" class="refresh" onclick="refresh(this)">Refresh now</button>
 </form>
 
 {% if not pred %}
-  {% if target %}
-    <h2 class="race-title">{{ target.event_name }} <span class="session-tag">{{ target.session }}</span></h2>
-    <p class="meta">next upcoming session — no prediction yet</p>
+  {% if focus %}
+    <h2 class="race-title">{{ focus.event_name }}{% if focus.session %} <span class="session-tag">{{ focus.session }}</span>{% endif %}</h2>
+    <p class="meta">no prediction yet</p>
     <p class="empty">
-      The model needs at least one preceding session of {{ target.event_name }} on
-      disk before it can predict {{ target.session }}. The page will populate
-      once that data is downloaded (the hourly job auto-downloads any past
-      preceding session of the target event).
+      No stored prediction for {{ focus.event_name }} yet — click
+      <strong>Refresh now</strong> to generate one. The model needs at least one
+      preceding session of the event on disk first; if it isn't there yet, the
+      prediction job will auto-download it and the page will populate shortly.
     </p>
   {% else %}
     <p class="empty">No upcoming session in the model's target list.</p>
@@ -211,8 +217,14 @@ async function refresh(btn) {
   btn.disabled = true;
   btn.textContent = 'Refreshing…';
   try {
-    await fetch('/api/refresh', { method: 'POST' });
-    setTimeout(() => window.location.reload(), 2000);
+    const v = document.getElementById('event').value;
+    let url = '/api/refresh';
+    if (v) {
+      const [y, e] = v.split('|');
+      url += `?year=${y}&event=${e}`;
+    }
+    await fetch(url, { method: 'POST' });
+    setTimeout(() => window.location.reload(), 3000);
   } catch (e) {
     btn.disabled = false;
     btn.textContent = 'Refresh now';

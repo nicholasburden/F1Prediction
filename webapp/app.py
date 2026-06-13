@@ -25,6 +25,7 @@ from webapp.runner import (
     retrain_state_snapshot,
     run_event_predictions,
     run_prediction,
+    upcoming_events,
 )
 from webapp.scheduler import start as scheduler_start, stop as scheduler_stop
 
@@ -138,12 +139,9 @@ def _default_session(sessions: list[str]) -> str | None:
 
 def _events_with_sessions(
     history: list[store.RaceSummary],
-    target: dict[str, object] | None,
 ) -> list[dict[str, object]]:
     """Distinct (year, event_id, event_name) groups with their available
-    session list, derived from the predictions DB plus the next-upcoming
-    target (so a freshly-scheduled event shows up even before any prediction
-    exists)."""
+    session list, derived from the predictions DB."""
     seen: dict[tuple[int, int], dict[str, object]] = {}
     for r in history:
         key = (r["year"], r["event_id"])
@@ -155,16 +153,6 @@ def _events_with_sessions(
         })
         if r["session"] not in entry["sessions"]:  # type: ignore[operator]
             entry["sessions"].append(r["session"])  # type: ignore[union-attr]
-    if target is not None:
-        key = (target["year"], target["event_id"])  # type: ignore[index]
-        entry = seen.setdefault(key, {
-            "year": target["year"],
-            "event_id": target["event_id"],
-            "event_name": target["event_name"],
-            "sessions": [],
-        })
-        if target["session"] not in entry["sessions"]:  # type: ignore[operator]
-            entry["sessions"].append(target["session"])  # type: ignore[union-attr]
     return sorted(  # type: ignore[return-value]
         seen.values(),
         key=lambda e: (e["year"], e["event_id"]),  # type: ignore[arg-type]
@@ -213,25 +201,57 @@ def index(
         )
 
     history = store.distinct_races(DB_PATH)
-    events = _events_with_sessions(history, target)
+    history_events = _events_with_sessions(history)
+    upcoming = upcoming_events(MODEL_DIR)
+    upcoming_keys = {(u["year"], u["event_id"]) for u in upcoming}
+    # "Predicted" group: events with stored predictions that aren't still
+    # upcoming (an upcoming event with predictions stays in the Upcoming group).
+    predicted_events = [
+        e for e in history_events
+        if (e["year"], e["event_id"]) not in upcoming_keys
+    ]
 
-    # An event was picked but no session — default to the most "interesting"
-    # session of that event (R > Sprint > Q > FP3 > FP2 > FP1 > SQ).
+    selected = year is not None and event is not None
+
+    # Session list for the picked event comes from its stored predictions, so
+    # an event with no prediction yet simply has no session sub-picker.
     selected_event_entry = None
-    if year is not None and event is not None:
-        for e in events:
+    if selected:
+        for e in history_events:
             if e["year"] == year and e["event_id"] == event:
                 selected_event_entry = e
                 break
+        # An event was picked but no session — default to the most "interesting"
+        # session of that event (R > Sprint > Q > FP3 > FP2 > FP1 > SQ).
         if session is None and selected_event_entry is not None:
             session = _default_session(selected_event_entry["sessions"])  # type: ignore[arg-type]
 
-    explicit = year is not None and event is not None and session is not None
-    pred = (
-        store.latest_for_race(DB_PATH, year, event, session)  # type: ignore[arg-type]
-        if explicit
-        else target_pred
-    )
+    if selected:
+        pred = (
+            store.latest_for_race(DB_PATH, year, event, session)  # type: ignore[arg-type]
+            if session is not None else None
+        )
+    else:
+        pred = target_pred
+
+    explicit = selected and session is not None
+
+    # The event shown in the header when there's no prediction to display yet —
+    # the explicitly picked one, else the next-upcoming target.
+    if selected:
+        focus_name = next(
+            (u["event_name"] for u in upcoming
+             if (u["year"], u["event_id"]) == (year, event)),
+            selected_event_entry["event_name"] if selected_event_entry else None,
+        )
+        focus: dict[str, object] | None = {
+            "year": year, "event_id": event,
+            "event_name": focus_name or f"Round {event}",
+            "session": session,
+        }
+    else:
+        focus = target  # type: ignore[assignment]
+
     inputs: list[object] = []
     if pred is not None and pred.get("features"):
         cfg = json.loads((MODEL_DIR / "config.json").read_text())
@@ -253,12 +273,15 @@ def index(
             "inputs": inputs,
             "target": target,
             "target_has_pred": target_pred is not None,
+            "focus": focus,
             "explicit": explicit,
+            "selected": selected,
             "selected_year": year,
             "selected_event": event,
             "selected_session": session,
             "selected_event_entry": selected_event_entry,
-            "events": events,
+            "upcoming": upcoming,
+            "events": predicted_events,
             "actual_podium": actual_podium,
             "model_full_data": is_full_data(MODEL_DIR),
             "model_fit_at": model_fit_at(MODEL_DIR, DATA_DIR),
@@ -302,9 +325,20 @@ def fantasy_page(
 ) -> HTMLResponse:
     if restriction not in fantasy.RESTRICTIONS:
         restriction = fantasy.RESTRICTION_NONE
-    target = next_target(MODEL_DIR)
     history = store.distinct_races(DB_PATH)
-    events = _events_with_sessions(history, target)  # type: ignore[arg-type]
+    events = _events_with_sessions(history)
+    present = {(e["year"], e["event_id"]) for e in events}
+    for u in upcoming_events(MODEL_DIR):
+        if (u["year"], u["event_id"]) not in present:
+            events.append({
+                "year": u["year"],
+                "event_id": u["event_id"],
+                "event_name": u["event_name"],
+                "sessions": [],
+            })
+    events.sort(
+        key=lambda e: (e["year"], e["event_id"]), reverse=True,  # type: ignore[arg-type,return-value]
+    )
 
     resolved = _event_for_fantasy(year, event)
     feed_error: str | None = None
@@ -443,8 +477,21 @@ def api_history() -> JSONResponse:
 
 
 @app.post("/api/refresh", status_code=202)
-def api_refresh(background: BackgroundTasks) -> dict[str, str]:
-    background.add_task(run_prediction, MODEL_DIR, DATA_DIR, DB_PATH)
+def api_refresh(
+    background: BackgroundTasks,
+    year: Annotated[int | None, Query()] = None,
+    event: Annotated[int | None, Query()] = None,
+) -> dict[str, str]:
+    """Schedule a prediction. With ``year`` and ``event`` set, predict every
+    target session of that specific event (regenerating any that already
+    exist); otherwise predict the single next-upcoming session."""
+    if year is not None and event is not None:
+        background.add_task(
+            run_event_predictions,
+            MODEL_DIR, DATA_DIR, DB_PATH, year, event, force=True,
+        )
+    else:
+        background.add_task(run_prediction, MODEL_DIR, DATA_DIR, DB_PATH)
     return {"status": "scheduled"}
 
 

@@ -13,7 +13,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import TypedDict
 
-from scripts.inference import _next_upcoming_session, predict_session
+from scripts.inference import (
+    _next_upcoming_session,
+    _upcoming_sessions,
+    predict_session,
+)
 from webapp import store
 
 log = logging.getLogger(__name__)
@@ -75,6 +79,31 @@ def next_target(model_dir: Path) -> TargetSession | None:
         event_name=event_name(year, round_num),
         session=session,
     )
+
+
+def upcoming_events(model_dir: Path) -> list[TargetSession]:
+    """All upcoming events (soonest first, one entry per event) that contain at
+    least one of the model's target sessions. ``session`` is the event's
+    earliest upcoming target session. Empty list if the schedule or config
+    can't be read."""
+    try:
+        cfg = json.loads((model_dir / "config.json").read_text())
+        sessions = _upcoming_sessions(cfg["training"]["target_sessions"])
+    except Exception as e:
+        log.warning("could not determine upcoming events: %s", e)
+        return []
+    seen: dict[tuple[int, int], TargetSession] = {}
+    for _date, year, round_num, session, name in sessions:
+        seen.setdefault(
+            (year, round_num),
+            TargetSession(
+                year=year,
+                event_id=round_num,
+                event_name=name,
+                session=session,
+            ),
+        )
+    return list(seen.values())
 
 
 def run_prediction(

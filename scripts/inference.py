@@ -24,6 +24,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from datetime import datetime
 from pathlib import Path
 
 import polars as pl
@@ -700,10 +701,12 @@ def _parse_event(value: str) -> int | str:
         return value
 
 
-def _next_upcoming_session(target_sessions: list[str]) -> tuple[int, int, str]:
-    """Return (year, round_num, session_abbrev) of the soonest upcoming session
-    that is in ``target_sessions``, queried from fastf1's schedule.
-    """
+def _upcoming_sessions(
+    target_sessions: list[str],
+) -> list[tuple[datetime, int, int, str, str]]:
+    """All upcoming sessions in ``target_sessions``, soonest first, as
+    (session_date, year, round_num, session_abbrev, event_name) tuples, queried
+    from fastf1's schedule. Empty if the schedule can't be read for any year."""
     from datetime import datetime, timezone
 
     import fastf1
@@ -712,7 +715,7 @@ def _next_upcoming_session(target_sessions: list[str]) -> tuple[int, int, str]:
     from f1prediction.data.download import SESSION_ABBREVS
 
     now = datetime.now(timezone.utc)
-    candidates: list[tuple[datetime, int, int, str]] = []
+    candidates: list[tuple[datetime, int, int, str, str]] = []
 
     for year in (now.year, now.year + 1):
         try:
@@ -723,6 +726,7 @@ def _next_upcoming_session(target_sessions: list[str]) -> tuple[int, int, str]:
             round_num = int(event.get("RoundNumber") or 0)
             if round_num <= 0:
                 continue
+            ev_name = str(event.get("EventName") or f"Round {round_num}")
             for i in range(1, 6):
                 sess_name = event.get(f"Session{i}")
                 sess_date = event.get(f"Session{i}Date")
@@ -738,13 +742,23 @@ def _next_upcoming_session(target_sessions: list[str]) -> tuple[int, int, str]:
                 if sess_date.tzinfo is None:
                     sess_date = sess_date.replace(tzinfo=timezone.utc)
                 if sess_date > now:
-                    candidates.append((sess_date, year, round_num, abbrev))
+                    candidates.append(
+                        (sess_date, year, round_num, abbrev, ev_name)
+                    )
 
+    candidates.sort(key=lambda c: c[0])
+    return candidates
+
+
+def _next_upcoming_session(target_sessions: list[str]) -> tuple[int, int, str]:
+    """Return (year, round_num, session_abbrev) of the soonest upcoming session
+    that is in ``target_sessions``, queried from fastf1's schedule.
+    """
+    candidates = _upcoming_sessions(target_sessions)
     if not candidates:
         raise RuntimeError(
             f"fastf1 returned no upcoming sessions in {target_sessions}"
         )
-    candidates.sort()
     return candidates[0][1], candidates[0][2], candidates[0][3]
 
 
