@@ -34,7 +34,7 @@ def start(
         max_instances=1,
     )
     _scheduler.add_job(
-        lambda: download_and_maybe_retrain(model_dir, data_dir, cache_dir),
+        lambda: download_and_maybe_retrain(model_dir, data_dir, cache_dir, store_db),
         trigger="interval",
         hours=download_interval_hours,
         id="daily_data_download",

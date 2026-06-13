@@ -419,15 +419,33 @@ def _run_retrain(model_dir: Path) -> None:
 
 
 def download_and_maybe_retrain(
-    model_dir: Path, data_dir: Path, cache_dir: Path
+    model_dir: Path, data_dir: Path, cache_dir: Path, store_db: Path
 ) -> None:
-    """Daily job: pull new sessions; if anything appeared on disk, retrain
-    the model and atomically swap it in. If a retrain is already running, the
-    download still happens but the retrain step is skipped (next day's run
-    will catch up)."""
+    """Daily job: pull new sessions; if anything appeared on disk, generate
+    predictions for any newly-completed sessions, then retrain the model and
+    atomically swap it in. If a retrain is already running, the download and
+    prediction backfill still happen but the retrain step is skipped (next
+    day's run will catch up)."""
     new_sessions = download_new_data(data_dir, cache_dir)
     if not new_sessions:
         return
+    # A session that completes between app restarts (or while the box is down
+    # over a race weekend) has its results land here, not at startup. Without
+    # this, the prediction for it would never be generated until the next
+    # restart — which is how Monaco 2026 ended up with a qualifying prediction
+    # but no race prediction. Backfill before retraining so the prediction
+    # reflects a model that hadn't yet seen the event (no leakage). force=False
+    # only fills genuine gaps, so already-predicted sessions are untouched.
+    from datetime import date
+
+    from webapp.backtest import run_backtest
+
+    try:
+        record_progress("backfilling predictions for new sessions")
+        run_backtest(model_dir, data_dir, store_db, date.today().year, force=False)
+    except Exception as e:
+        log.exception("post-download prediction backfill failed")
+        record_progress(f"prediction backfill failed: {type(e).__name__}: {e}")
     if not _try_start_retrain():
         record_progress(
             f"{len(new_sessions)} new session(s) but a refit is already in flight"
