@@ -11,7 +11,9 @@ import json
 import logging
 import threading
 import time
+import urllib.error
 import urllib.request
+from datetime import datetime, timezone
 from itertools import combinations
 from pathlib import Path
 from typing import TypedDict
@@ -20,7 +22,12 @@ from webapp import store
 
 log = logging.getLogger(__name__)
 
-FEED_URL = "https://fantasy.formula1.com/feeds/drivers/1_en.json"
+# The trailing integer is the game-period (race-weekend) id. Prices change
+# every round, so we must resolve the latest available period rather than
+# hardcode one — period 1 is the season opener and freezes prices in March.
+FEED_URL_TEMPLATE = "https://fantasy.formula1.com/feeds/drivers/{period}_en.json"
+FIRST_PERIOD = 1
+MAX_PERIOD = 40
 FEED_CACHE_TTL_SECONDS = 1800
 FEED_HTTP_TIMEOUT = 10.0
 
@@ -73,6 +80,7 @@ class FantasyConstructor(TypedDict):
 
 class FantasyFeed(TypedDict):
     fetched_at: float
+    period: int
     feed_time: str | None
     drivers: list[FantasyDriver]
     constructors: list[FantasyConstructor]
@@ -92,7 +100,21 @@ _cache_lock = threading.Lock()
 _cache: FantasyFeed | None = None
 
 
-def _parse_feed(raw: dict[str, object]) -> FantasyFeed:
+def _parse_feed_time(feed_time: object) -> str | None:
+    """Normalise the feed's ``FeedTime`` to an ISO-8601 UTC string. The feed
+    now nests times by zone (``{"UTCTime": "6/21/2026 4:57:07 PM", ...}``);
+    older feeds used a bare string. Returns ``None`` if neither parses."""
+    raw = feed_time.get("UTCTime") if isinstance(feed_time, dict) else feed_time
+    if not isinstance(raw, str):
+        return None
+    try:
+        dt = datetime.strptime(raw.strip(), "%m/%d/%Y %I:%M:%S %p")
+    except ValueError:
+        return raw.strip()
+    return dt.replace(tzinfo=timezone.utc).isoformat()
+
+
+def _parse_feed(raw: dict[str, object], period: int) -> FantasyFeed:
     data = raw.get("Data", {})
     if not isinstance(data, dict):
         raise ValueError("fantasy feed missing 'Data' object")
@@ -131,13 +153,48 @@ def _parse_feed(raw: dict[str, object]) -> FantasyFeed:
             except (TypeError, ValueError):
                 continue
             constructors.append(FantasyConstructor(name=name, price=price_f))
-    feed_time = data.get("FeedTime") if isinstance(data.get("FeedTime"), str) else None
+    feed_time = _parse_feed_time(data.get("FeedTime"))
     return FantasyFeed(
         fetched_at=time.time(),
+        period=period,
         feed_time=feed_time,
         drivers=drivers,
         constructors=constructors,
     )
+
+
+def _fetch_period(period: int) -> dict[str, object] | None:
+    """Fetch the raw feed for ``period``, or ``None`` if it does not exist
+    yet (future periods return HTTP 403/404)."""
+    url = FEED_URL_TEMPLATE.format(period=period)
+    try:
+        with urllib.request.urlopen(url, timeout=FEED_HTTP_TIMEOUT) as resp:
+            return json.loads(resp.read().decode("utf-8"))
+    except urllib.error.HTTPError as e:
+        if e.code in (403, 404):
+            return None
+        raise
+
+
+def _resolve_latest_feed(start: int) -> tuple[dict[str, object], int]:
+    """Walk upward from ``start`` to find the newest available game period,
+    returning its raw feed and period id. Prices roll over each round, so the
+    highest period that still resolves is the live one."""
+    raw = _fetch_period(start)
+    if raw is None:
+        # The hint is stale-high (e.g. a new season reset the numbering);
+        # fall back to scanning from the first period.
+        start = FIRST_PERIOD
+        raw = _fetch_period(start)
+        if raw is None:
+            raise ValueError("no fantasy feed available from the F1 feed")
+    period = start
+    while period < MAX_PERIOD:
+        nxt = _fetch_period(period + 1)
+        if nxt is None:
+            break
+        raw, period = nxt, period + 1
+    return raw, period
 
 
 def fetch_fantasy_feed(*, force: bool = False) -> FantasyFeed:
@@ -151,13 +208,13 @@ def fetch_fantasy_feed(*, force: bool = False) -> FantasyFeed:
             and time.time() - _cache["fetched_at"] < FEED_CACHE_TTL_SECONDS
         ):
             return _cache
-        log.info("fetching fantasy feed: %s", FEED_URL)
-        with urllib.request.urlopen(FEED_URL, timeout=FEED_HTTP_TIMEOUT) as resp:
-            raw = json.loads(resp.read().decode("utf-8"))
-        _cache = _parse_feed(raw)
+        start = _cache["period"] if _cache is not None else FIRST_PERIOD
+        log.info("resolving latest fantasy feed period (from %d)", start)
+        raw, period = _resolve_latest_feed(start)
+        _cache = _parse_feed(raw, period)
         log.info(
-            "fantasy feed parsed: %d drivers, %d constructors",
-            len(_cache["drivers"]), len(_cache["constructors"]),
+            "fantasy feed parsed: period %d, %d drivers, %d constructors",
+            period, len(_cache["drivers"]), len(_cache["constructors"]),
         )
         return _cache
 
