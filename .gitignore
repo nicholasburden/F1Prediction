@@ -6,6 +6,11 @@ prepared/
 outputs/
 logs/
 webapp_models/
+# Deployed model artifacts — per-training-run outputs, served via a volume
+# mount (see .dockerignore), not versioned. Reference data in webapp_config
+# (drivers.json, track_locations.json) stays tracked.
+webapp_config/checkpoint.pt
+webapp_config/config.json
 __pycache__/
 *.pyc
 .venv/
